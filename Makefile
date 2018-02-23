@@ -45,9 +45,9 @@ endif
 
 rclone:
 	go build -v --ldflags "-s -X github.com/rclone/rclone/fs.Version=$(TAG)" $(BUILDTAGS)
-	mkdir -p `go env GOPATH`/bin/
-	cp -av rclone`go env GOEXE` `go env GOPATH`/bin/rclone`go env GOEXE`.new
-	mv -v `go env GOPATH`/bin/rclone`go env GOEXE`.new `go env GOPATH`/bin/rclone`go env GOEXE`
+
+go-install:
+	go install -v --ldflags "-s -X github.com/rclone/rclone/fs.Version=$(TAG)" $(BUILDTAGS)
 
 test_all:
 	go install --ldflags "-s -X github.com/rclone/rclone/fs.Version=$(TAG)" $(BUILDTAGS) github.com/rclone/rclone/fstest/test_all
@@ -127,7 +127,7 @@ rcdocs: rclone
 
 install: rclone
 	install -d ${DESTDIR}/usr/bin
-	install -t ${DESTDIR}/usr/bin ${GOPATH}/bin/rclone
+	install -t ${DESTDIR}/usr/bin rclone
 
 clean:
 	go clean ./...
