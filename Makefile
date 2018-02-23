@@ -34,8 +34,11 @@ endif
 
 rclone:
 	touch fs/version.go
+	go build -v --ldflags "-s -X github.com/rclone/rclone/fs.Version=$(TAG)" $(BUILDTAGS)
+
+go-install:
+	touch fs/version.go
 	go install -v --ldflags "-s -X github.com/rclone/rclone/fs.Version=$(TAG)" $(BUILDTAGS)
-	cp -av `go env GOPATH`/bin/rclone .
 
 vars:
 	@echo SHELL="'$(SHELL)'"
@@ -108,7 +111,7 @@ rcdocs: rclone
 
 install: rclone
 	install -d ${DESTDIR}/usr/bin
-	install -t ${DESTDIR}/usr/bin ${GOPATH}/bin/rclone
+	install -t ${DESTDIR}/usr/bin rclone
 
 clean:
 	go clean ./...
