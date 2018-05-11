@@ -359,9 +359,10 @@ func initConfig() {
 	fs.Debugf("rclone", "Version %q starting with parameters %q", fs.Version, os.Args)
 
 	// Start the remote control server if configured
-	_, err = rcserver.Start(&rcflags.Opt)
+	server, err := rcserver.Start(&rcflags.Opt)
 	if err != nil {
 		log.Fatalf("Failed to start remote control: %v", err)
+		atexit.Register(server.Close)
 	}
 
 	// Setup CPU profiling if desired
