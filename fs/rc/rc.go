@@ -32,6 +32,8 @@ type Options struct {
 	EnableMetrics            bool   // set to disable prometheus metrics on /metrics
 	JobExpireDuration        time.Duration
 	JobExpireInterval        time.Duration
+	ListenUnix               string
+	ListenUnixPerm           uint32
 }
 
 // DefaultOpt is the default values used for Options
@@ -40,6 +42,8 @@ var DefaultOpt = Options{
 	Enabled:           false,
 	JobExpireDuration: 60 * time.Second,
 	JobExpireInterval: 10 * time.Second,
+	ListenUnix:        "",
+	ListenUnixPerm:    0600,
 }
 
 func init() {

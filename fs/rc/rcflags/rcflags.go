@@ -29,5 +29,7 @@ func AddFlags(flagSet *pflag.FlagSet) {
 	flags.BoolVarP(flagSet, &Opt.EnableMetrics, "rc-enable-metrics", "", false, "Enable prometheus metrics on /metrics")
 	flags.DurationVarP(flagSet, &Opt.JobExpireDuration, "rc-job-expire-duration", "", Opt.JobExpireDuration, "expire finished async jobs older than this value")
 	flags.DurationVarP(flagSet, &Opt.JobExpireInterval, "rc-job-expire-interval", "", Opt.JobExpireInterval, "interval to check for expired async jobs")
+	flags.StringVarP(flagSet, &Opt.ListenUnix, "rc-unix", "", "", "Use a Unix Socket instead of TCP.")
+	flags.Uint32VarP(flagSet, &Opt.ListenUnixPerm, "rc-unix-perm", "", Opt.ListenUnixPerm, "Permissions to set on the Unix Socket.")
 	httpflags.AddFlagsPrefix(flagSet, "rc-", &Opt.HTTPOptions)
 }
