@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 	"sync"
 
 	"github.com/rclone/rclone/fs"
@@ -17,20 +18,74 @@ var (
 
 // ChunkedReader is a reader for a Object with the possibility
 // of reading the source in chunks of given size
-//
-// A initialChunkSize of <= 0 will disable chunked reading.
 type ChunkedReader struct {
-	ctx              context.Context
-	mu               sync.Mutex    // protects following fields
-	o                fs.Object     // source to read from
-	rc               io.ReadCloser // reader for the current open chunk
-	offset           int64         // offset the next Read will start. -1 forces a reopen of o
-	chunkOffset      int64         // beginning of the current or next chunk
-	chunkSize        int64         // length of the current or next chunk. -1 will open o from chunkOffset to the end
-	initialChunkSize int64         // default chunkSize after the chunk specified by RangeSeek is complete
-	maxChunkSize     int64         // consecutive read chunks will double in size until reached. -1 means no limit
-	customChunkSize  bool          // is the current chunkSize set by RangeSeek?
-	closed           bool          // has Close been called?
+	ctx         context.Context
+	mu          sync.Mutex        // protects following fields
+	o           fs.Object         // source to read from
+	rc          io.ReadCloser     // reader for the current open chunk
+	offset      int64             // offset the next Read will start. -1 forces a reopen of o
+	chunkOffset int64             // beginning of the current or next chunk
+	chunkSize   int64             // length of the current or next chunk. -1 will open o from chunkOffset to the end
+	sizeIter    ChunkSizeIterator // function to calculate the next chunk size
+	closed      bool              // has Close been called?
+}
+
+// ChunkSizeIterator is used to calculate the chunk size values.
+type ChunkSizeIterator interface {
+	// NextChunkSize returns the next chunk size to use.
+	// A return value <= 0 will disable chunk handling.
+	NextChunkSize() int64
+	// Reset will be called after RangeSeek with the last used chunk size.
+	Reset(int64)
+}
+
+type minMaxIterator struct {
+	cur, min, max int64
+}
+
+func (mmi *minMaxIterator) NextChunkSize() int64 {
+	if mmi.cur < mmi.min || mmi.min == -1 {
+		mmi.cur = mmi.min
+		return mmi.min
+	}
+	if mmi.cur > 0 {
+		mmi.cur *= 2
+	}
+	if mmi.cur > mmi.max {
+		return mmi.max
+	}
+	return mmi.cur
+}
+func (mmi *minMaxIterator) Reset(int64) {
+	mmi.cur = 0
+}
+
+// IteratorFromMinMax returns a combination of Min, Max and Multiply by 2 SizeFunc's.
+// A min of <= 0 will always return -1 and disable chunked reading.
+// If max is greater than min, the last value will be doubled each time.
+func IteratorFromMinMax(min, max int64) ChunkSizeIterator {
+	if min <= 0 {
+		return &minMaxIterator{
+			min: -1,
+		}
+	}
+	if max != -1 {
+		if max < min {
+			max = min
+		}
+	} else {
+		max = math.MaxInt64
+	}
+	return &minMaxIterator{
+		min: min,
+		max: max,
+	}
+}
+func fixNeg(size int64) int64 {
+	if size <= 0 {
+		return -1
+	}
+	return size
 }
 
 // New returns a ChunkedReader for the Object.
@@ -39,20 +94,20 @@ type ChunkedReader struct {
 // If maxChunkSize is greater than initialChunkSize, the chunk size will be
 // doubled after each chunk read with a maximun of maxChunkSize.
 // A Seek or RangeSeek will reset the chunk size to it's initial value
-func New(ctx context.Context, o fs.Object, initialChunkSize int64, maxChunkSize int64) *ChunkedReader {
-	if initialChunkSize <= 0 {
-		initialChunkSize = -1
-	}
-	if maxChunkSize != -1 && maxChunkSize < initialChunkSize {
-		maxChunkSize = initialChunkSize
-	}
+func New(ctx context.Context, o fs.Object, initialChunkSize, maxChunkSize int64) *ChunkedReader {
+	return NewWithChunkSizeIterator(ctx, o, IteratorFromMinMax(initialChunkSize, maxChunkSize))
+}
+
+// NewWithChunkSizeIterator returns a ChunkedReader for the Object and
+// the given chunk size calculation.
+// When the sizeIter returns a value <= 0, chunked reading is disabled.
+func NewWithChunkSizeIterator(ctx context.Context, o fs.Object, sizeIter ChunkSizeIterator) *ChunkedReader {
 	return &ChunkedReader{
-		ctx:              ctx,
-		o:                o,
-		offset:           -1,
-		chunkSize:        initialChunkSize,
-		initialChunkSize: initialChunkSize,
-		maxChunkSize:     maxChunkSize,
+		ctx:       ctx,
+		o:         o,
+		offset:    -1,
+		chunkSize: fixNeg(sizeIter.NextChunkSize()),
+		sizeIter:  sizeIter,
 	}
 }
 
@@ -74,15 +129,7 @@ func (cr *ChunkedReader) Read(p []byte) (n int, err error) {
 		switch {
 		case cr.chunkSize > 0 && cr.offset == chunkEnd: // last chunk read completely
 			cr.chunkOffset = cr.offset
-			if cr.customChunkSize { // last chunkSize was set by RangeSeek
-				cr.customChunkSize = false
-				cr.chunkSize = cr.initialChunkSize
-			} else {
-				cr.chunkSize *= 2
-				if cr.chunkSize > cr.maxChunkSize && cr.maxChunkSize != -1 {
-					cr.chunkSize = cr.maxChunkSize
-				}
-			}
+			cr.chunkSize = fixNeg(cr.sizeIter.NextChunkSize())
 			// recalculate the chunk boundary. valid only when chunkSize > 0
 			chunkEnd = cr.chunkOffset + cr.chunkSize
 			fallthrough
@@ -160,11 +207,11 @@ func (cr *ChunkedReader) RangeSeek(ctx context.Context, offset int64, whence int
 	cr.chunkOffset = cr.offset + offset
 	// force reopen on next Read
 	cr.offset = -1
+	cr.sizeIter.Reset(length)
 	if length > 0 {
-		cr.customChunkSize = true
 		cr.chunkSize = length
 	} else {
-		cr.chunkSize = cr.initialChunkSize
+		cr.chunkSize = fixNeg(cr.sizeIter.NextChunkSize())
 	}
 	if cr.chunkOffset < 0 || cr.chunkOffset >= size {
 		cr.chunkOffset = 0
