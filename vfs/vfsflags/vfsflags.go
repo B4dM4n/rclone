@@ -37,5 +37,6 @@ func AddFlags(flagSet *pflag.FlagSet) {
 	flags.DurationVarP(flagSet, &Opt.ReadWait, "vfs-read-wait", "", Opt.ReadWait, "Time to wait for in-sequence read before seeking.")
 	flags.DurationVarP(flagSet, &Opt.WriteBack, "vfs-write-back", "", Opt.WriteBack, "Time to writeback files after last use when using cache.")
 	flags.FVarP(flagSet, &Opt.ReadAhead, "vfs-read-ahead", "", "Extra read ahead over --buffer-size when using cache-mode full.")
+	flags.FVarP(flagSet, &Opt.ChunkSizeList, "vfs-read-chunk-size-list", "", "Comma separated list of chunk sizes to use in order. Overides vfs-read-chunk-size and vfs-read-chunk-size-limit when set.")
 	platformFlags(flagSet)
 }
