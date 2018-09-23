@@ -33,5 +33,6 @@ func AddFlags(flagSet *pflag.FlagSet) {
 	flags.FVarP(flagSet, DirPerms, "dir-perms", "", "Directory permissions")
 	flags.FVarP(flagSet, FilePerms, "file-perms", "", "File permissions")
 	flags.BoolVarP(flagSet, &Opt.CaseInsensitive, "vfs-case-insensitive", "", Opt.CaseInsensitive, "If a file name not found, find a case insensitive match.")
+	flags.FVarP(flagSet, &Opt.ChunkSizeList, "vfs-read-chunk-size-list", "", "Comma separated list of chunk sizes to use in order. Overides vfs-read-chunk-size and vfs-read-chunk-size-limit when set.")
 	platformFlags(flagSet)
 }
