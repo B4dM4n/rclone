@@ -28,6 +28,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ncw/rclone/fs/chunkedreader"
+
 	"github.com/ncw/rclone/fs"
 	"github.com/ncw/rclone/fs/log"
 )
@@ -178,6 +180,8 @@ type VFS struct {
 	usageTime time.Time
 	usage     *fs.Usage
 	pollChan  chan time.Duration
+
+	chunkSizeFunc func() chunkedreader.ChunkSizeIterator
 }
 
 // Options is options for creating the vfs
@@ -195,6 +199,7 @@ type Options struct {
 	FilePerms         os.FileMode
 	ChunkSize         fs.SizeSuffix // if > 0 read files in chunks
 	ChunkSizeLimit    fs.SizeSuffix // if > ChunkSize double the chunk size after each chunk until reached
+	ChunkSizeList     chunkedreader.MultiplierList
 	CacheMode         CacheMode
 	CacheMaxAge       time.Duration
 	CacheMaxSize      fs.SizeSuffix
@@ -222,6 +227,14 @@ func New(f fs.Fs, opt *Options) *VFS {
 
 	// Make sure directories are returned as directories
 	vfs.Opt.DirPerms |= os.ModeDir
+
+	if vfs.Opt.ChunkSizeList.Empty() {
+		vfs.chunkSizeFunc = func() chunkedreader.ChunkSizeIterator {
+			return chunkedreader.IteratorFromMinMax(int64(vfs.Opt.ChunkSize), int64(vfs.Opt.ChunkSizeLimit))
+		}
+	} else {
+		vfs.chunkSizeFunc = vfs.Opt.ChunkSizeList.Iter
+	}
 
 	// Create root directory
 	vfs.root = newDir(vfs, f, nil, fsDir)
