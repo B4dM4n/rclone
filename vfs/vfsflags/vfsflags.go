@@ -25,5 +25,6 @@ func AddFlags(flagSet *pflag.FlagSet) {
 	flags.DurationVarP(flagSet, &Opt.CacheMaxAge, "vfs-cache-max-age", "", Opt.CacheMaxAge, "Max age of objects in the cache.")
 	flags.FVarP(flagSet, &Opt.ChunkSize, "vfs-read-chunk-size", "", "Read the source objects in chunks.")
 	flags.FVarP(flagSet, &Opt.ChunkSizeLimit, "vfs-read-chunk-size-limit", "", "If greater than --vfs-read-chunk-size, double the chunk size after each chunk read, until the limit is reached. 'off' is unlimited.")
+	flags.FVarP(flagSet, &Opt.ChunkSizeList, "vfs-read-chunk-size-list", "", "Comma separated list of chunk sizes to use in order. Overides vfs-read-chunk-size and vfs-read-chunk-size-limit when set.")
 	platformFlags(flagSet)
 }
