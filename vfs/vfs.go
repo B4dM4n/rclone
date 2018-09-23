@@ -27,6 +27,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -35,6 +36,7 @@ import (
 
 	"github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/cache"
+	"github.com/rclone/rclone/fs/chunkedreader"
 	"github.com/rclone/rclone/fs/log"
 	"github.com/rclone/rclone/fs/walk"
 	"github.com/rclone/rclone/vfs/vfscache"
@@ -168,6 +170,8 @@ type VFS struct {
 	usage       *fs.Usage
 	pollChan    chan time.Duration
 	inUse       int32 // count of number of opens accessed with atomic
+
+	chunkSizeFunc func() chunkedreader.ChunkSizeIterator
 }
 
 // Keep track of active VFS keyed on fs.ConfigString(f)
@@ -204,7 +208,7 @@ func New(f fs.Fs, opt *vfscommon.Options) *VFS {
 	defer activeMu.Unlock()
 	configName := fs.ConfigString(f)
 	for _, activeVFS := range active[configName] {
-		if vfs.Opt == activeVFS.Opt {
+		if reflect.DeepEqual(vfs.Opt, activeVFS.Opt) {
 			fs.Debugf(f, "Re-using VFS from active cache")
 			atomic.AddInt32(&activeVFS.inUse, 1)
 			return activeVFS
@@ -212,6 +216,14 @@ func New(f fs.Fs, opt *vfscommon.Options) *VFS {
 	}
 	// Put the VFS into the active cache
 	active[configName] = append(active[configName], vfs)
+
+	if vfs.Opt.ChunkSizeList.Empty() {
+		vfs.chunkSizeFunc = func() chunkedreader.ChunkSizeIterator {
+			return chunkedreader.IteratorFromMinMax(int64(vfs.Opt.ChunkSize), int64(vfs.Opt.ChunkSizeLimit))
+		}
+	} else {
+		vfs.chunkSizeFunc = vfs.Opt.ChunkSizeList.Iter
+	}
 
 	// Create root directory
 	vfs.root = newDir(vfs, f, nil, fsDir)
