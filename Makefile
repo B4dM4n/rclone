@@ -1,3 +1,4 @@
+V := -v
 SHELL = bash
 BRANCH := $(or $(APPVEYOR_REPO_BRANCH),$(TRAVIS_BRANCH),$(shell git rev-parse --abbrev-ref HEAD))
 LAST_TAG := $(shell git describe --tags --abbrev=0)
@@ -16,7 +17,12 @@ ifneq ($(TAG),$(LAST_TAG))
 	TAG := $(TAG)-beta
 endif
 GO_VERSION := $(shell go version)
-GO_FILES := $(shell go list ./... | grep -v /vendor/ )
+GO_1_9 = $(shell go version | perl -lne 'print "go$$1.$$2" if /go(\d+)\.(\d+)/ && ($$1 > 1 || $$2 >= 9)')
+ifdef GO_1_9
+	GO_FILES := ./...
+else
+	GO_FILES := $(shell go list ./... | grep -v /vendor/ )
+endif
 BETA_PATH := $(BRANCH_PATH)$(TAG)
 BETA_URL := https://beta.rclone.org/$(BETA_PATH)/
 BETA_UPLOAD_ROOT := memstore:beta-rclone-org
@@ -30,11 +36,11 @@ endif
 
 rclone:
 	touch fs/version.go
-	go build -v --ldflags "-s -X github.com/ncw/rclone/fs.Version=$(TAG)" $(BUILDTAGS)
+	go build $(V) --ldflags "-s -X github.com/ncw/rclone/fs.Version=$(TAG)" $(BUILDTAGS)
 
 go-install:
 	touch fs/version.go
-	go install -v --ldflags "-s -X github.com/ncw/rclone/fs.Version=$(TAG)" $(BUILDTAGS)
+	go install $(V) --ldflags "-s -X github.com/ncw/rclone/fs.Version=$(TAG)" $(BUILDTAGS)
 
 vars:
 	@echo SHELL="'$(SHELL)'"
