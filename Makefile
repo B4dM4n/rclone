@@ -1,3 +1,4 @@
+V := -v
 SHELL = bash
 # Branch we are working on
 BRANCH := $(or $(APPVEYOR_REPO_BRANCH),$(TRAVIS_BRANCH),$(BUILD_SOURCEBRANCHNAME),$(lastword $(subst /, ,$(GITHUB_REF))),$(shell git rev-parse --abbrev-ref HEAD))
@@ -27,9 +28,11 @@ ifndef RELEASE_TAG
 	TAG := $(TAG)-beta
 endif
 GO_VERSION := $(shell go version)
-GO_FILES := $(shell go list ./... | grep -v /vendor/ )
-ifdef BETA_SUBDIR
-	BETA_SUBDIR := /$(BETA_SUBDIR)
+GO_1_9 = $(shell go version | perl -lne 'print "go$$1.$$2" if /go(\d+)\.(\d+)/ && ($$1 > 1 || $$2 >= 9)')
+ifdef GO_1_9
+	GO_FILES := ./...
+else
+	GO_FILES := $(shell go list ./... | grep -v /vendor/ )
 endif
 BETA_PATH := $(BRANCH_PATH)$(TAG)$(BETA_SUBDIR)
 BETA_URL := https://beta.rclone.org/$(BETA_PATH)/
@@ -44,10 +47,10 @@ endif
 .PHONY: rclone test_all vars version
 
 rclone:
-	go build -v --ldflags "-s -X github.com/rclone/rclone/fs.Version=$(TAG)" $(BUILDTAGS)
+	go build $(V) --ldflags "-s -X github.com/rclone/rclone/fs.Version=$(TAG)" $(BUILDTAGS)
 
 go-install:
-	go install -v --ldflags "-s -X github.com/rclone/rclone/fs.Version=$(TAG)" $(BUILDTAGS)
+	go install $(V) --ldflags "-s -X github.com/rclone/rclone/fs.Version=$(TAG)" $(BUILDTAGS)
 
 test_all:
 	go install --ldflags "-s -X github.com/rclone/rclone/fs.Version=$(TAG)" $(BUILDTAGS) github.com/rclone/rclone/fstest/test_all
