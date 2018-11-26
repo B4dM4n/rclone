@@ -5,7 +5,9 @@ import (
 	"errors"
 	"io"
 	"sync"
+	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/hash"
 )
@@ -32,6 +34,8 @@ type ChunkedReader struct {
 	maxChunkSize     int64         // consecutive read chunks will double in size until reached. -1 means no limit
 	customChunkSize  bool          // is the current chunkSize set by RangeSeek?
 	closed           bool          // has Close been called?
+
+	opened time.Time
 }
 
 // New returns a ChunkedReader for the Object.
@@ -59,6 +63,15 @@ func New(ctx context.Context, o fs.Object, initialChunkSize int64, maxChunkSize 
 
 // Read from the file - for details see io.Reader
 func (cr *ChunkedReader) Read(p []byte) (n int, err error) {
+	now := time.Now()
+	defer func() {
+		promReadKibiBytes.Observe(float64(n) / 1024.)
+		promReadTimes.Observe(time.Since(now).Seconds())
+		if err != nil && err != io.EOF {
+			promReadErrors.Add(1)
+		}
+	}()
+
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
 
@@ -191,7 +204,15 @@ func (cr *ChunkedReader) Open() (*ChunkedReader, error) {
 // When RangeSeek fails, o.Open with a RangeOption is used.
 //
 // A length <= 0 will request till the end of the file
-func (cr *ChunkedReader) openRange() error {
+func (cr *ChunkedReader) openRange() (err error) {
+	now := time.Now()
+	defer func() {
+		promOpenTimes.Observe(time.Since(now).Seconds())
+		if err != nil {
+			promOpenErrors.Add(1)
+		}
+	}()
+
 	offset, length := cr.chunkOffset, cr.chunkSize
 	fs.Debugf(cr.o, "ChunkedReader.openRange at %d length %d", offset, length)
 
@@ -203,6 +224,7 @@ func (cr *ChunkedReader) openRange() error {
 		n, err := rs.RangeSeek(cr.ctx, offset, io.SeekStart, length)
 		if err == nil && n == offset {
 			cr.offset = offset
+			promOpenSeeks.Add(1)
 			return nil
 		}
 		if err != nil {
@@ -213,7 +235,6 @@ func (cr *ChunkedReader) openRange() error {
 	}
 
 	var rc io.ReadCloser
-	var err error
 	if length <= 0 {
 		if offset == 0 {
 			rc, err = cr.o.Open(cr.ctx, &fs.HashesOption{Hashes: hash.Set(hash.None)})
@@ -233,9 +254,13 @@ func (cr *ChunkedReader) openRange() error {
 // The old reader will be Close'd before setting the new reader.
 func (cr *ChunkedReader) resetReader(rc io.ReadCloser, offset int64) error {
 	if cr.rc != nil {
+		promConnDurations.Observe(time.Since(cr.opened).Seconds())
 		if err := cr.rc.Close(); err != nil {
 			return err
 		}
+	}
+	if rc != nil {
+		cr.opened = time.Now()
 	}
 	cr.rc = rc
 	cr.offset = offset
@@ -247,3 +272,48 @@ var (
 	_ io.Seeker      = (*ChunkedReader)(nil)
 	_ fs.RangeSeeker = (*ChunkedReader)(nil)
 )
+
+var (
+	promReadKibiBytes = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "rclone_chunkedreader_read_kibi_bytes",
+		Help:    "Amount of kibi bytes read in one Read call",
+		Buckets: prometheus.ExponentialBuckets(1., 4, 6),
+	})
+	promReadErrors = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "rclone_chunkedreader_read_errors_total",
+		Help: "Number of errors during Read calls",
+	})
+	promReadTimes = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name: "rclone_chunkedreader_read_histogram_seconds",
+		Help: "Time spent in one Read call",
+	})
+	promOpenErrors = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "rclone_chunkedreader_open_errors_total",
+		Help: "Number of errors while opening a range",
+	})
+	promOpenSeeks = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "rclone_chunkedreader_open_seeks_total",
+		Help: "Number of seeks while opening a range",
+	})
+	promOpenTimes = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name: "rclone_chunkedreader_open_histogram_seconds",
+		Help: "Time spent opening a range",
+	})
+	promConnDurations = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "rclone_chunkedreader_connection_histogram_seconds",
+		Help:    "Age of the connection when Close'd",
+		Buckets: []float64{.2, 1, 5, 15, 60, 240, 600, 1800},
+	})
+)
+
+func init() {
+	prometheus.MustRegister(
+		promReadKibiBytes,
+		promReadErrors,
+		promReadTimes,
+		promOpenErrors,
+		promOpenSeeks,
+		promOpenTimes,
+		promConnDurations,
+	)
+}
