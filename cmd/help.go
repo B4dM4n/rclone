@@ -10,6 +10,7 @@ import (
 	"github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/config/configflags"
 	"github.com/rclone/rclone/fs/filter/filterflags"
+	"github.com/rclone/rclone/fs/prom/promflags"
 	"github.com/rclone/rclone/fs/rc/rcflags"
 	"github.com/rclone/rclone/lib/atexit"
 	"github.com/spf13/cobra"
@@ -168,6 +169,7 @@ func setupRootCommand(rootCmd *cobra.Command) {
 	configflags.AddFlags(pflag.CommandLine)
 	filterflags.AddFlags(pflag.CommandLine)
 	rcflags.AddFlags(pflag.CommandLine)
+	promflags.AddFlags(pflag.CommandLine)
 
 	Root.Run = runRoot
 	Root.Flags().BoolVarP(&version, "version", "V", false, "Print the version number")
