@@ -67,3 +67,5 @@ require (
 	google.golang.org/grpc v1.23.0 // indirect
 	gopkg.in/yaml.v2 v2.2.2
 )
+
+replace bazil.org/fuse v0.0.0-20180421153158-65cc252bf669 => ../../../bazil.org/fuse
