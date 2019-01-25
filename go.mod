@@ -72,3 +72,5 @@ require (
 	gopkg.in/yaml.v3 v3.0.0-20200615113413-eeeca48fe776 // indirect
 	storj.io/uplink v1.2.0
 )
+
+replace bazil.org/fuse => github.com/B4dM4n/fuse v0.0.0-20201120104232-7a0ef5fd520d
