@@ -107,6 +107,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"sync"
 	"syscall"
 	"time"
@@ -333,6 +334,7 @@ const (
 	ENOENT = Errno(syscall.ENOENT)
 	EIO    = Errno(syscall.EIO)
 	EPERM  = Errno(syscall.EPERM)
+	ENOTTY = Errno(syscall.ENOTTY)
 
 	// EINTR indicates request was interrupted by an InterruptRequest.
 	// See also fs.Intr.
@@ -1001,6 +1003,41 @@ loop:
 		req = &InterruptRequest{
 			Header: m.Header(),
 			IntrID: RequestID(in.Unique),
+		}
+
+	case opIoctl:
+		in := (*ioctlIn)(m.data())
+		Debug(fmt.Sprintf("got opIoctl %d %#v", m.len(), in))
+		if s := unsafe.Sizeof(*in); m.len() < s {
+			goto corrupt
+		} else {
+			m.off += int(s)
+		}
+		var inBuf []byte
+		var outBuf []byte
+		if in.InSize > 0 {
+			if uint32(m.len()) < in.InSize {
+				goto corrupt
+			}
+			sh := (*reflect.SliceHeader)(unsafe.Pointer(&inBuf))
+			sh.Data = uintptr(m.data())
+			sh.Len = int(in.InSize)
+			sh.Cap = int(in.InSize)
+			Debug(fmt.Sprintf("with inBuf %v", inBuf))
+		}
+		if in.OutSize > 0 {
+			if in.InSize != 0 && in.InSize != in.OutSize {
+				goto corrupt
+			}
+			outBuf = make([]byte, in.OutSize)
+		}
+
+		req = &IoctlRequest{
+			Header: m.Header(),
+			Cmd:    in.Cmd,
+			Arg:    in.Arg,
+			InBuf:  inBuf,
+			OutBuf: outBuf,
 		}
 
 	case opBmap:
@@ -2301,4 +2338,45 @@ func (r *ExchangeDataRequest) String() string {
 func (r *ExchangeDataRequest) Respond() {
 	buf := newBuffer(0)
 	r.respond(buf)
+}
+
+type IoctlRequest struct {
+	Header `json:"-"`
+	Cmd    uint32
+	Arg    uint64
+	InBuf  []byte
+	OutBuf []byte
+}
+
+var _ = Request(&IoctlRequest{})
+
+func (r *IoctlRequest) Respond(resp *IoctlResponse) {
+	buf := newBuffer(unsafe.Sizeof(ioctlOut{}) + uintptr(len(r.OutBuf)))
+	out := (*ioctlOut)(buf.alloc(unsafe.Sizeof(ioctlOut{})))
+	out.Result = resp.Result
+	if r.OutBuf != nil {
+		ptr := buf.alloc(uintptr(len(r.OutBuf)))
+		var outBuf []byte
+
+		sh := (*reflect.SliceHeader)(unsafe.Pointer(&outBuf))
+		sh.Data = uintptr(ptr)
+		sh.Len = len(r.OutBuf)
+		sh.Cap = len(r.OutBuf)
+
+		copy(outBuf, r.OutBuf)
+	}
+	r.respond(buf)
+}
+
+func (r *IoctlRequest) String() string {
+	return fmt.Sprintf("Ioctl [%s] cmd=%d arg=%d", &r.Header, r.Cmd, r.Arg)
+}
+
+// A IoctlResponse is the response to a LookupRequest.
+type IoctlResponse struct {
+	Result int32
+}
+
+func (r *IoctlResponse) string() string {
+	return fmt.Sprintf("Ioctl result=%d", r.Result)
 }
