@@ -346,8 +346,8 @@ func (d *Dir) _readDirFromEntries(entries fs.DirEntries, dirTree dirtree.DirTree
 	return nil
 }
 
-// readDirTree forces a refresh of the complete directory tree
-func (d *Dir) readDirTree() error {
+// ReadDirTree forces a refresh of the complete directory tree
+func (d *Dir) ReadDirTree() error {
 	d.mu.RLock()
 	f, path := d.f, d.path
 	d.mu.RUnlock()
@@ -369,8 +369,8 @@ func (d *Dir) readDirTree() error {
 	return nil
 }
 
-// readDir forces a refresh of the directory
-func (d *Dir) readDir() error {
+// ReadDir forces a refresh of the directory
+func (d *Dir) ReadDir() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.read = time.Time{}

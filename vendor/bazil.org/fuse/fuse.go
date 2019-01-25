@@ -20,9 +20,7 @@
 // OF ANY KIND CONCERNING THE MERCHANTABILITY OF THIS SOFTWARE OR ITS
 // FITNESS FOR ANY PARTICULAR PURPOSE.
 
-// Package fuse enables writing FUSE file systems on Linux, OS X, and FreeBSD.
-//
-// On OS X, it requires OSXFUSE (http://osxfuse.github.com/).
+// Package fuse enables writing FUSE file systems on Linux and FreeBSD.
 //
 // There are two approaches to writing a FUSE file system.  The first is to speak
 // the low-level message protocol, reading from a Conn using ReadRequest and
@@ -107,6 +105,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"sync"
 	"syscall"
 	"time"
@@ -115,11 +114,14 @@ import (
 
 // A Conn represents a connection to a mounted FUSE file system.
 type Conn struct {
-	// Ready is closed when the mount is complete or has failed.
+	// Always closed, mount is ready when Mount returns.
+	//
+	// Deprecated: Not used, OS X remnant.
 	Ready <-chan struct{}
 
-	// MountError stores any error from the mount process. Only valid
-	// after Ready is closed.
+	// Use error returned from Mount.
+	//
+	// Deprecated: Not used, OS X remnant.
 	MountError error
 
 	// File handle for kernel communication. Only safe to access if
@@ -128,7 +130,7 @@ type Conn struct {
 	wio sync.RWMutex
 	rio sync.RWMutex
 
-	// Protocol version negotiated with InitRequest/InitResponse.
+	// Protocol version negotiated with initRequest/initResponse.
 	proto Protocol
 }
 
@@ -149,11 +151,6 @@ func (e *MountpointDoesNotExistError) Error() string {
 //
 // After a successful return, caller must call Close to free
 // resources.
-//
-// Even on successful return, the new mount is not guaranteed to be
-// visible until after Conn.Ready is closed. See Conn.MountError for
-// possible errors. Incoming requests on Conn must be served to make
-// progress.
 func Mount(dir string, options ...MountOption) (*Conn, error) {
 	conf := mountConfig{
 		options: make(map[string]string),
@@ -164,11 +161,12 @@ func Mount(dir string, options ...MountOption) (*Conn, error) {
 		}
 	}
 
-	ready := make(chan struct{}, 1)
+	ready := make(chan struct{})
+	close(ready)
 	c := &Conn{
 		Ready: ready,
 	}
-	f, err := mount(dir, &conf, ready, &c.MountError)
+	f, err := mount(dir, &conf)
 	if err != nil {
 		return nil, err
 	}
@@ -176,13 +174,7 @@ func Mount(dir string, options ...MountOption) (*Conn, error) {
 
 	if err := initMount(c, &conf); err != nil {
 		c.Close()
-		if err == ErrClosedWithoutInit {
-			// see if we can provide a better error
-			<-c.Ready
-			if err := c.MountError; err != nil {
-				return nil, err
-			}
-		}
+		_ = Unmount(dir)
 		return nil, err
 	}
 
@@ -210,7 +202,7 @@ func initMount(c *Conn, conf *mountConfig) error {
 		}
 		return err
 	}
-	r, ok := req.(*InitRequest)
+	r, ok := req.(*initRequest)
 	if !ok {
 		return fmt.Errorf("missing init, got: %T", req)
 	}
@@ -232,11 +224,13 @@ func initMount(c *Conn, conf *mountConfig) error {
 	}
 	c.proto = proto
 
-	s := &InitResponse{
-		Library:      proto,
-		MaxReadahead: conf.maxReadahead,
-		MaxWrite:     maxWrite,
-		Flags:        InitBigWrites | conf.initFlags,
+	s := &initResponse{
+		Library:             proto,
+		MaxReadahead:        conf.maxReadahead,
+		Flags:               InitBigWrites | conf.initFlags,
+		MaxBackground:       conf.maxBackground,
+		CongestionThreshold: conf.congestionThreshold,
+		MaxWrite:            maxWrite,
 	}
 	r.Respond(s)
 	return nil
@@ -335,6 +329,7 @@ const (
 	ENOENT = Errno(syscall.ENOENT)
 	EIO    = Errno(syscall.EIO)
 	EPERM  = Errno(syscall.EPERM)
+	ENOTTY = Errno(syscall.ENOTTY)
 
 	// EINTR indicates request was interrupted by an InterruptRequest.
 	// See also fs.Intr.
@@ -416,7 +411,6 @@ func ToErrno(err error) Errno {
 func (h *Header) RespondError(err error) {
 	errno := ToErrno(err)
 	// FUSE uses negative errors!
-	// TODO: File bug report against OSXFUSE: positive error causes kernel panic.
 	buf := newBuffer(0)
 	hOut := (*outHeader)(unsafe.Pointer(&buf[0]))
 	hOut.Error = -int32(errno)
@@ -573,15 +567,9 @@ func (c *Conn) Protocol() Protocol {
 // a reasonable time. Caller must not retain Request after that call.
 func (c *Conn) ReadRequest() (Request, error) {
 	m := getMessage(c)
-loop:
 	c.rio.RLock()
 	n, err := syscall.Read(c.fd(), m.buf)
 	c.rio.RUnlock()
-	if err == syscall.EINTR {
-		// OSXFUSE sends EINTR to userspace when a request interrupt
-		// completed before it got sent to userspace?
-		goto loop
-	}
 	if err != nil && err != syscall.ENODEV {
 		putMessage(m)
 		return nil, err
@@ -600,11 +588,6 @@ loop:
 	// FreeBSD FUSE sends a short length in the header
 	// for FUSE_INIT even though the actual read length is correct.
 	if n == inHeaderSize+initInSize && m.hdr.Opcode == opInit && m.hdr.Len < uint32(n) {
-		m.hdr.Len = uint32(n)
-	}
-
-	// OSXFUSE sometimes sends the wrong m.hdr.Len in a FUSE_WRITE message.
-	if m.hdr.Len < uint32(n) && m.hdr.Len >= uint32(unsafe.Sizeof(writeIn{})) && m.hdr.Opcode == opWrite {
 		m.hdr.Len = uint32(n)
 	}
 
@@ -671,18 +654,15 @@ loop:
 			goto corrupt
 		}
 		req = &SetattrRequest{
-			Header:   m.Header(),
-			Valid:    SetattrValid(in.Valid),
-			Handle:   HandleID(in.Fh),
-			Size:     in.Size,
-			Atime:    time.Unix(int64(in.Atime), int64(in.AtimeNsec)),
-			Mtime:    time.Unix(int64(in.Mtime), int64(in.MtimeNsec)),
-			Mode:     fileMode(in.Mode),
-			Uid:      in.Uid,
-			Gid:      in.Gid,
-			Bkuptime: in.BkupTime(),
-			Chgtime:  in.Chgtime(),
-			Flags:    in.Flags(),
+			Header: m.Header(),
+			Valid:  SetattrValid(in.Valid),
+			Handle: HandleID(in.Fh),
+			Size:   in.Size,
+			Atime:  time.Unix(int64(in.Atime), int64(in.AtimeNsec)),
+			Mtime:  time.Unix(int64(in.Mtime), int64(in.MtimeNsec)),
+			Mode:   fileMode(in.Mode),
+			Uid:    in.Uid,
+			Gid:    in.Gid,
 		}
 
 	case opReadlink:
@@ -910,11 +890,10 @@ loop:
 		}
 		xattr = xattr[:in.Size]
 		req = &SetxattrRequest{
-			Header:   m.Header(),
-			Flags:    in.Flags,
-			Position: in.position(),
-			Name:     string(name[:i]),
-			Xattr:    xattr,
+			Header: m.Header(),
+			Flags:  in.Flags,
+			Name:   string(name[:i]),
+			Xattr:  xattr,
 		}
 
 	case opGetxattr:
@@ -928,10 +907,9 @@ loop:
 			goto corrupt
 		}
 		req = &GetxattrRequest{
-			Header:   m.Header(),
-			Name:     string(name[:i]),
-			Size:     in.Size,
-			Position: in.position(),
+			Header: m.Header(),
+			Name:   string(name[:i]),
+			Size:   in.Size,
 		}
 
 	case opListxattr:
@@ -940,9 +918,8 @@ loop:
 			goto corrupt
 		}
 		req = &ListxattrRequest{
-			Header:   m.Header(),
-			Size:     in.Size,
-			Position: in.position(),
+			Header: m.Header(),
+			Size:   in.Size,
 		}
 
 	case opRemovexattr:
@@ -964,7 +941,6 @@ loop:
 		req = &FlushRequest{
 			Header:    m.Header(),
 			Handle:    HandleID(in.Fh),
-			Flags:     in.FlushFlags,
 			LockOwner: in.LockOwner,
 		}
 
@@ -973,7 +949,7 @@ loop:
 		if m.len() < unsafe.Sizeof(*in) {
 			goto corrupt
 		}
-		req = &InitRequest{
+		req = &initRequest{
 			Header:       m.Header(),
 			Kernel:       Protocol{in.Major, in.Minor},
 			MaxReadahead: in.MaxReadahead,
@@ -1042,39 +1018,80 @@ loop:
 			Header: m.Header(),
 		}
 
-	// OS X
-	case opSetvolname:
-		panic("opSetvolname")
-	case opGetxtimes:
-		panic("opGetxtimes")
-	case opExchange:
-		in := (*exchangeIn)(m.data())
+	case opIoctl:
+		in := (*ioctlIn)(m.data())
+		Debug(fmt.Sprintf("got opIoctl %d %#v", m.len(), in))
+		if s := unsafe.Sizeof(*in); m.len() < s {
+			goto corrupt
+		} else {
+			m.off += int(s)
+		}
+		var inBuf []byte
+		var outBuf []byte
+		if in.InSize > 0 {
+			if uint32(m.len()) < in.InSize {
+				goto corrupt
+			}
+			sh := (*reflect.SliceHeader)(unsafe.Pointer(&inBuf))
+			sh.Data = uintptr(m.data())
+			sh.Len = int(in.InSize)
+			sh.Cap = int(in.InSize)
+			Debug(fmt.Sprintf("with inBuf %v", inBuf))
+		}
+		if in.OutSize > 0 {
+			if in.InSize != 0 && in.InSize != in.OutSize {
+				goto corrupt
+			}
+			outBuf = make([]byte, in.OutSize)
+		}
+
+		req = &IoctlRequest{
+			Header: m.Header(),
+			Cmd:    in.Cmd,
+			Arg:    in.Arg,
+			InBuf:  inBuf,
+			OutBuf: outBuf,
+		}
+
+	case opNotifyReply:
+		req = &NotifyReply{
+			Header: m.Header(),
+			msg:    m,
+		}
+
+	case opPoll:
+		in := (*pollIn)(m.data())
 		if m.len() < unsafe.Sizeof(*in) {
 			goto corrupt
 		}
-		oldDirNodeID := NodeID(in.Olddir)
-		newDirNodeID := NodeID(in.Newdir)
-		oldNew := m.bytes()[unsafe.Sizeof(*in):]
-		// oldNew should be "oldname\x00newname\x00"
-		if len(oldNew) < 4 {
+		req = &PollRequest{
+			Header: m.Header(),
+			Handle: HandleID(in.Fh),
+			kh:     in.Kh,
+			Flags:  PollFlags(in.Flags),
+			Events: PollEvents(in.Events),
+		}
+
+	case opBatchForget:
+		in := (*batchForgetIn)(m.data())
+		if s := unsafe.Sizeof(*in); m.len() < s {
+			goto corrupt
+		} else {
+			m.off += int(s)
+		}
+		r := &BatchForgetRequest{
+			Header: m.Header(),
+			Count:  in.Count,
+			Dummy:  in.Dummy,
+		}
+		if m.len() < unsafe.Sizeof(BatchForgetOne{})*uintptr(in.Count) {
 			goto corrupt
 		}
-		if oldNew[len(oldNew)-1] != '\x00' {
-			goto corrupt
-		}
-		i := bytes.IndexByte(oldNew, '\x00')
-		if i < 0 {
-			goto corrupt
-		}
-		oldName, newName := string(oldNew[:i]), string(oldNew[i+1:len(oldNew)-1])
-		req = &ExchangeDataRequest{
-			Header:  m.Header(),
-			OldDir:  oldDirNodeID,
-			NewDir:  newDirNodeID,
-			OldName: oldName,
-			NewName: newName,
-			// TODO options
-		}
+		sh := (*reflect.SliceHeader)(unsafe.Pointer(&r.Nodes))
+		sh.Data = uintptr(m.data())
+		sh.Len = int(in.Count)
+		sh.Cap = int(in.Count)
+		req = r
 	}
 
 	return req, nil
@@ -1164,10 +1181,10 @@ var (
 	ErrNotCached = notCachedError{}
 )
 
-// sendInvalidate sends an invalidate notification to kernel.
+// sendNotify sends a notification to kernel.
 //
 // A returned ENOENT is translated to a friendlier error.
-func (c *Conn) sendInvalidate(msg []byte) error {
+func (c *Conn) sendNotify(msg []byte) error {
 	switch err := c.writeToKernel(msg); err {
 	case syscall.ENOENT:
 		return ErrNotCached
@@ -1193,7 +1210,7 @@ func (c *Conn) InvalidateNode(nodeID NodeID, off int64, size int64) error {
 	out.Ino = uint64(nodeID)
 	out.Off = off
 	out.Len = size
-	return c.sendInvalidate(buf)
+	return c.sendNotify(buf)
 }
 
 // InvalidateEntry invalidates the kernel cache of the directory entry
@@ -1221,11 +1238,105 @@ func (c *Conn) InvalidateEntry(parent NodeID, name string) error {
 	out.Namelen = uint32(len(name))
 	buf = append(buf, name...)
 	buf = append(buf, '\x00')
-	return c.sendInvalidate(buf)
+	return c.sendNotify(buf)
 }
 
-// An InitRequest is the first request sent on a FUSE file system.
-type InitRequest struct {
+func (c *Conn) NotifyStore(nodeID NodeID, offset uint64, data []byte) error {
+	buf := newBuffer(unsafe.Sizeof(notifyStoreOut{}) + uintptr(len(data)))
+	h := (*outHeader)(unsafe.Pointer(&buf[0]))
+	// h.Unique is 0
+	h.Error = notifyCodeStore
+	out := (*notifyStoreOut)(buf.alloc(unsafe.Sizeof(notifyStoreOut{})))
+	out.Nodeid = uint64(nodeID)
+	out.Offset = offset
+	out.Size = uint32(len(data))
+	buf = append(buf, data...)
+	return c.sendNotify(buf)
+}
+
+type NotifyRetrieval struct {
+	// we may want fields later, so don't let callers know it's the
+	// empty struct
+	_ struct{}
+}
+
+func (n *NotifyRetrieval) Finish(r *NotifyReply) []byte {
+	m := r.msg
+	defer putMessage(m)
+	in := (*notifyRetrieveIn)(m.data())
+	if m.len() < unsafe.Sizeof(*in) {
+		Debug(malformedMessage{})
+		return nil
+	}
+	m.off += int(unsafe.Sizeof(*in))
+	buf := m.bytes()
+	if uint32(len(buf)) < in.Size {
+		Debug(malformedMessage{})
+		return nil
+	}
+
+	data := make([]byte, in.Size)
+	copy(data, buf)
+	return data
+}
+
+func (c *Conn) NotifyRetrieve(notificationID RequestID, nodeID NodeID, offset uint64, size uint32) (*NotifyRetrieval, error) {
+	// notificationID may collide with kernel-chosen requestIDs, it's
+	// up to the caller to branch based on the opCode.
+
+	buf := newBuffer(unsafe.Sizeof(notifyRetrieveOut{}))
+	h := (*outHeader)(unsafe.Pointer(&buf[0]))
+	// h.Unique is 0
+	h.Error = notifyCodeRetrieve
+	out := (*notifyRetrieveOut)(buf.alloc(unsafe.Sizeof(notifyRetrieveOut{})))
+	out.NotifyUnique = uint64(notificationID)
+	out.Nodeid = uint64(nodeID)
+	out.Offset = offset
+	// kernel constrains size to maxWrite for us
+	out.Size = size
+	if err := c.sendNotify(buf); err != nil {
+		return nil, err
+	}
+	r := &NotifyRetrieval{}
+	return r, nil
+}
+
+// NotifyPollWakeup sends a notification to the kernel to wake up all
+// clients waiting on this node. Wakeup is a value from a PollRequest
+// for a Handle or a Node currently alive (Forget has not been called
+// on it).
+func (c *Conn) NotifyPollWakeup(wakeup PollWakeup) error {
+	if wakeup.kh == 0 {
+		// likely somebody ignored the comma-ok return
+		return nil
+	}
+	buf := newBuffer(unsafe.Sizeof(notifyPollWakeupOut{}))
+	h := (*outHeader)(unsafe.Pointer(&buf[0]))
+	// h.Unique is 0
+	h.Error = notifyCodePoll
+	out := (*notifyPollWakeupOut)(buf.alloc(unsafe.Sizeof(notifyPollWakeupOut{})))
+	out.Kh = wakeup.kh
+	return c.sendNotify(buf)
+}
+
+// NotifyDelete sends a notification to the kernel to mark the entry for `name` in `parent` as
+// deleted if the entry nodeid is `child`.
+func (c *Conn) NotifyDelete(parent, child NodeID, name string) error {
+	buf := newBuffer(unsafe.Sizeof(notifyStoreOut{}) + uintptr(len(name)+1))
+	h := (*outHeader)(unsafe.Pointer(&buf[0]))
+	// h.Unique is 0
+	h.Error = notifyDelete
+	out := (*notifyDeleteOut)(buf.alloc(unsafe.Sizeof(notifyDeleteOut{})))
+	out.Parent = uint64(parent)
+	out.Child = uint64(child)
+	out.Namelen = uint32(len(name))
+	buf = append(buf, name...)
+	buf = append(buf, '\x00')
+	return c.sendNotify(buf)
+}
+
+// An initRequest is the first request sent on a FUSE file system.
+type initRequest struct {
 	Header `json:"-"`
 	Kernel Protocol
 	// Maximum readahead in bytes that the kernel plans to use.
@@ -1233,36 +1344,42 @@ type InitRequest struct {
 	Flags        InitFlags
 }
 
-var _ = Request(&InitRequest{})
+var _ = Request(&initRequest{})
 
-func (r *InitRequest) String() string {
+func (r *initRequest) String() string {
 	return fmt.Sprintf("Init [%v] %v ra=%d fl=%v", &r.Header, r.Kernel, r.MaxReadahead, r.Flags)
 }
 
-// An InitResponse is the response to an InitRequest.
-type InitResponse struct {
+// An initResponse is the response to an initRequest.
+type initResponse struct {
 	Library Protocol
 	// Maximum readahead in bytes that the kernel can use. Ignored if
-	// greater than InitRequest.MaxReadahead.
+	// greater than initRequest.MaxReadahead.
 	MaxReadahead uint32
 	Flags        InitFlags
+	// Maximum number of outstanding background requests
+	MaxBackground uint16
+	// Number of background requests at which congestion starts
+	CongestionThreshold uint16
 	// Maximum size of a single write operation.
 	// Linux enforces a minimum of 4 KiB.
 	MaxWrite uint32
 }
 
-func (r *InitResponse) String() string {
-	return fmt.Sprintf("Init %v ra=%d fl=%v w=%d", r.Library, r.MaxReadahead, r.Flags, r.MaxWrite)
+func (r *initResponse) String() string {
+	return fmt.Sprintf("Init %v ra=%d fl=%v maxbg=%d cg=%d w=%d", r.Library, r.MaxReadahead, r.Flags, r.MaxBackground, r.CongestionThreshold, r.MaxWrite)
 }
 
 // Respond replies to the request with the given response.
-func (r *InitRequest) Respond(resp *InitResponse) {
+func (r *initRequest) Respond(resp *initResponse) {
 	buf := newBuffer(unsafe.Sizeof(initOut{}))
 	out := (*initOut)(buf.alloc(unsafe.Sizeof(initOut{})))
 	out.Major = resp.Library.Major
 	out.Minor = resp.Library.Minor
 	out.MaxReadahead = resp.MaxReadahead
 	out.Flags = uint32(resp.Flags)
+	out.MaxBackground = resp.MaxBackground
+	out.CongestionThreshold = resp.CongestionThreshold
 	out.MaxWrite = resp.MaxWrite
 
 	// MaxWrite larger than our receive buffer would just lead to
@@ -1353,14 +1470,17 @@ type Attr struct {
 	Atime     time.Time   // time of last access
 	Mtime     time.Time   // time of last modification
 	Ctime     time.Time   // time of last inode change
-	Crtime    time.Time   // time of creation (OS X only)
 	Mode      os.FileMode // file mode
 	Nlink     uint32      // number of links (usually 1)
 	Uid       uint32      // owner uid
 	Gid       uint32      // group gid
 	Rdev      uint32      // device numbers
-	Flags     uint32      // chflags(2) flags (OS X only)
 	BlockSize uint32      // preferred blocksize for filesystem I/O
+
+	// Deprecated: Not used, OS X remnant.
+	Crtime time.Time
+	// Deprecated: Not used, OS X remnant.
+	Flags uint32
 }
 
 func (a Attr) String() string {
@@ -1381,7 +1501,6 @@ func (a *Attr) attr(out *attr, proto Protocol) {
 	out.Atime, out.AtimeNsec = unix(a.Atime)
 	out.Mtime, out.MtimeNsec = unix(a.Mtime)
 	out.Ctime, out.CtimeNsec = unix(a.Ctime)
-	out.SetCrtime(unix(a.Crtime))
 	out.Mode = uint32(a.Mode) & 0777
 	switch {
 	default:
@@ -1411,7 +1530,6 @@ func (a *Attr) attr(out *attr, proto Protocol) {
 	out.Uid = a.Uid
 	out.Gid = a.Gid
 	out.Rdev = a.Rdev
-	out.SetFlags(a.Flags)
 	if proto.GE(Protocol{7, 9}) {
 		out.Blksize = a.BlockSize
 	}
@@ -1460,17 +1578,14 @@ type GetxattrRequest struct {
 	// Name of the attribute requested.
 	Name string
 
-	// Offset within extended attributes.
-	//
-	// Only valid for OS X, and then only with the resource fork
-	// attribute.
+	// Deprecated: Not used, OS X remnant.
 	Position uint32
 }
 
 var _ = Request(&GetxattrRequest{})
 
 func (r *GetxattrRequest) String() string {
-	return fmt.Sprintf("Getxattr [%s] %q %d @%d", &r.Header, r.Name, r.Size, r.Position)
+	return fmt.Sprintf("Getxattr [%s] %q %d", &r.Header, r.Name, r.Size)
 }
 
 // Respond replies to the request with the given response.
@@ -1498,15 +1613,17 @@ func (r *GetxattrResponse) String() string {
 
 // A ListxattrRequest asks to list the extended attributes associated with r.Node.
 type ListxattrRequest struct {
-	Header   `json:"-"`
-	Size     uint32 // maximum size to return
-	Position uint32 // offset within attribute list
+	Header `json:"-"`
+	Size   uint32 // maximum size to return
+
+	// Deprecated: Not used, OS X remnant.
+	Position uint32
 }
 
 var _ = Request(&ListxattrRequest{})
 
 func (r *ListxattrRequest) String() string {
-	return fmt.Sprintf("Listxattr [%s] %d @%d", &r.Header, r.Size, r.Position)
+	return fmt.Sprintf("Listxattr [%s] %d", &r.Header, r.Size)
 }
 
 // Respond replies to the request with the given response.
@@ -1573,10 +1690,7 @@ type SetxattrRequest struct {
 	// TODO XATTR_REPLACE and not exist -> ENODATA
 	Flags uint32
 
-	// Offset within extended attributes.
-	//
-	// Only valid for OS X, and then only with the resource fork
-	// attribute.
+	// Deprecated: Not used, OS X remnant.
 	Position uint32
 
 	Name  string
@@ -1594,7 +1708,7 @@ func trunc(b []byte, max int) ([]byte, string) {
 
 func (r *SetxattrRequest) String() string {
 	xattr, tail := trunc(r.Xattr, 16)
-	return fmt.Sprintf("Setxattr [%s] %q %q%s fl=%v @%#x", &r.Header, r.Name, xattr, tail, r.Flags, r.Position)
+	return fmt.Sprintf("Setxattr [%s] %q %q%s fl=%v", &r.Header, r.Name, xattr, tail, r.Flags)
 }
 
 // Respond replies to the request, indicating that the extended attribute was set.
@@ -1688,7 +1802,7 @@ type CreateRequest struct {
 	Name   string
 	Flags  OpenFlags
 	Mode   os.FileMode
-	// Umask of the request. Not supported on OS X.
+	// Umask of the request.
 	Umask os.FileMode
 }
 
@@ -1735,7 +1849,7 @@ type MkdirRequest struct {
 	Header `json:"-"`
 	Name   string
 	Mode   os.FileMode
-	// Umask of the request. Not supported on OS X.
+	// Umask of the request.
 	Umask os.FileMode
 }
 
@@ -1821,7 +1935,7 @@ type ReleaseRequest struct {
 	Handle       HandleID
 	Flags        OpenFlags // flags from OpenRequest
 	ReleaseFlags ReleaseFlags
-	LockOwner    uint32
+	LockOwner    uint64
 }
 
 var _ = Request(&ReleaseRequest{})
@@ -1872,6 +1986,33 @@ func (r *ForgetRequest) String() string {
 func (r *ForgetRequest) Respond() {
 	// Don't reply to forget messages.
 	r.noResponse()
+}
+
+// A BatchForgetRequest is sent by the kernel when forgetting about r.Node
+// as returned by r.N lookup requests.
+type BatchForgetRequest struct {
+	Header `json:"-"`
+	Count  uint32
+	Dummy  uint32
+	Nodes  []BatchForgetOne
+}
+
+var _ = Request(&BatchForgetRequest{})
+
+func (r *BatchForgetRequest) String() string {
+	return fmt.Sprintf("BatchForget [%s] %d", &r.Header, len(r.Nodes))
+}
+
+// Respond replies to the request, indicating that the forgetfulness has been recorded.
+func (r *BatchForgetRequest) Respond() {
+	// Don't reply to forget messages.
+	r.noResponse()
+}
+
+// BatchForgetOne represents a single node to forget.
+type BatchForgetOne struct {
+	Nodeid NodeID
+	N      uint64
 }
 
 // A Dirent represents a single directory entry.
@@ -2024,11 +2165,14 @@ type SetattrRequest struct {
 	Uid  uint32
 	Gid  uint32
 
-	// OS X only
+	// Deprecated: Not used, OS X remnant.
 	Bkuptime time.Time
-	Chgtime  time.Time
-	Crtime   time.Time
-	Flags    uint32 // see chflags(2)
+	// Deprecated: Not used, OS X remnant.
+	Chgtime time.Time
+	// Deprecated: Not used, OS X remnant.
+	Crtime time.Time
+	// Deprecated: Not used, OS X remnant.
+	Flags uint32
 }
 
 var _ = Request(&SetattrRequest{})
@@ -2068,18 +2212,6 @@ func (r *SetattrRequest) String() string {
 	if r.Valid.LockOwner() {
 		fmt.Fprintf(&buf, " lockowner")
 	}
-	if r.Valid.Crtime() {
-		fmt.Fprintf(&buf, " crtime=%v", r.Crtime)
-	}
-	if r.Valid.Chgtime() {
-		fmt.Fprintf(&buf, " chgtime=%v", r.Chgtime)
-	}
-	if r.Valid.Bkuptime() {
-		fmt.Fprintf(&buf, " bkuptime=%v", r.Bkuptime)
-	}
-	if r.Valid.Flags() {
-		fmt.Fprintf(&buf, " flags=%v", r.Flags)
-	}
 	return buf.String()
 }
 
@@ -2108,8 +2240,9 @@ func (r *SetattrResponse) String() string {
 // to storage, as when a file descriptor is being closed.  A single opened Handle
 // may receive multiple FlushRequests over its lifetime.
 type FlushRequest struct {
-	Header    `json:"-"`
-	Handle    HandleID
+	Header `json:"-"`
+	Handle HandleID
+	// Deprecated: Unused since 2006.
 	Flags     uint32
 	LockOwner uint64
 }
@@ -2249,7 +2382,7 @@ type MknodRequest struct {
 	Name   string
 	Mode   os.FileMode
 	Rdev   uint32
-	// Umask of the request. Not supported on OS X.
+	// Umask of the request.
 	Umask os.FileMode
 }
 
@@ -2310,19 +2443,11 @@ func (r *InterruptRequest) String() string {
 	return fmt.Sprintf("Interrupt [%s] ID %v", &r.Header, r.IntrID)
 }
 
-// An ExchangeDataRequest is a request to exchange the contents of two
-// files, while leaving most metadata untouched.
-//
-// This request comes from OS X exchangedata(2) and represents its
-// specific semantics. Crucially, it is very different from Linux
-// renameat(2) RENAME_EXCHANGE.
-//
-// https://developer.apple.com/library/mac/documentation/Darwin/Reference/ManPages/man2/exchangedata.2.html
+// Deprecated: Not used, OS X remnant.
 type ExchangeDataRequest struct {
 	Header           `json:"-"`
 	OldDir, NewDir   NodeID
 	OldName, NewName string
-	// TODO options
 }
 
 var _ = Request(&ExchangeDataRequest{})
@@ -2335,4 +2460,114 @@ func (r *ExchangeDataRequest) String() string {
 func (r *ExchangeDataRequest) Respond() {
 	buf := newBuffer(0)
 	r.respond(buf)
+}
+
+// NotifyReply is a response to an earlier notification. It behaves
+// like a Request, but is not really a request expecting a response.
+type NotifyReply struct {
+	Header `json:"-"`
+	msg    *message
+}
+
+var _ = Request(&NotifyReply{})
+
+func (r *NotifyReply) String() string {
+	return fmt.Sprintf("NotifyReply [%s]", &r.Header)
+}
+
+type PollRequest struct {
+	Header `json:"-"`
+	Handle HandleID
+	kh     uint64
+	Flags  PollFlags
+	// Events is a bitmap of events of interest.
+	//
+	// This field is only set for FUSE protocol 7.21 and later.
+	Events PollEvents
+}
+
+var _ Request = (*PollRequest)(nil)
+
+func (r *PollRequest) String() string {
+	return fmt.Sprintf("Poll [%s] %v kh=%v fl=%v ev=%v", &r.Header, r.Handle, r.kh, r.Flags, r.Events)
+}
+
+type PollWakeup struct {
+	kh uint64
+}
+
+func (p PollWakeup) String() string {
+	return fmt.Sprintf("PollWakeup{kh=%d}", p.kh)
+}
+
+// Wakeup returns information that can be used later to wake up file
+// system clients polling a Handle or a Node.
+//
+// ok is false if wakeups are not requested for this poll.
+//
+// Do not retain PollWakeup past the lifetime of the Handle or Node.
+func (r *PollRequest) Wakeup() (_ PollWakeup, ok bool) {
+	if r.Flags&PollScheduleNotify == 0 {
+		return PollWakeup{}, false
+	}
+	p := PollWakeup{
+		kh: r.kh,
+	}
+	return p, true
+}
+
+func (r *PollRequest) Respond(resp *PollResponse) {
+	buf := newBuffer(unsafe.Sizeof(pollOut{}))
+	out := (*pollOut)(buf.alloc(unsafe.Sizeof(pollOut{})))
+	out.REvents = uint32(resp.REvents)
+	r.respond(buf)
+}
+
+type PollResponse struct {
+	REvents PollEvents
+}
+
+func (r *PollResponse) String() string {
+	return fmt.Sprintf("Poll revents=%v", r.REvents)
+}
+
+type IoctlRequest struct {
+	Header `json:"-"`
+	Cmd    uint32
+	Arg    uint64
+	InBuf  []byte
+	OutBuf []byte
+}
+
+var _ = Request(&IoctlRequest{})
+
+func (r *IoctlRequest) Respond(resp *IoctlResponse) {
+	buf := newBuffer(unsafe.Sizeof(ioctlOut{}) + uintptr(len(r.OutBuf)))
+	out := (*ioctlOut)(buf.alloc(unsafe.Sizeof(ioctlOut{})))
+	out.Result = resp.Result
+	if r.OutBuf != nil {
+		ptr := buf.alloc(uintptr(len(r.OutBuf)))
+		var outBuf []byte
+
+		sh := (*reflect.SliceHeader)(unsafe.Pointer(&outBuf))
+		sh.Data = uintptr(ptr)
+		sh.Len = len(r.OutBuf)
+		sh.Cap = len(r.OutBuf)
+
+		copy(outBuf, r.OutBuf)
+	}
+	r.respond(buf)
+}
+
+func (r *IoctlRequest) String() string {
+	return fmt.Sprintf("Ioctl [%s] cmd=%d arg=%d", &r.Header, r.Cmd, r.Arg)
+}
+
+// A IoctlResponse is the response to a LookupRequest.
+type IoctlResponse struct {
+	Result int32
+}
+
+func (r *IoctlResponse) string() string {
+	return fmt.Sprintf("Ioctl result=%d", r.Result)
 }
