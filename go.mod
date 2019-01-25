@@ -81,3 +81,5 @@ require (
 	storj.io/common v0.0.0-20210203145648-3768017a858e // indirect
 	storj.io/uplink v1.4.5
 )
+
+replace bazil.org/fuse => github.com/B4dM4n/fuse v0.0.0-20201120104232-7a0ef5fd520d
