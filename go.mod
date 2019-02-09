@@ -59,6 +59,7 @@ require (
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.7.0
 	github.com/t3rm1n4l/go-mega v0.0.0-20200416171014-ffad7fcb44b8
+	github.com/thinkhy/go-adb v0.0.0-20190123053734-b4b48de70418
 	github.com/xanzy/ssh-agent v0.3.0
 	github.com/youmark/pkcs8 v0.0.0-20201027041543-1326539a0a0a
 	github.com/yunify/qingstor-sdk-go/v3 v3.2.0
@@ -81,3 +82,5 @@ require (
 	storj.io/common v0.0.0-20210203145648-3768017a858e // indirect
 	storj.io/uplink v1.4.5
 )
+
+replace github.com/thinkhy/go-adb v0.0.0-20190123053734-b4b48de70418 => ../../../github.com/thinkhy/go-adb
