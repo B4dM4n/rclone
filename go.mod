@@ -19,6 +19,7 @@ require (
 	github.com/google/go-querystring v1.0.0 // indirect
 	github.com/gopherjs/gopherjs v0.0.0-20190812055157-5d271430af9f // indirect
 	github.com/hanwen/go-fuse/v2 v2.0.3-0.20191108143333-152e6ac32d54
+	github.com/hashicorp/go-retryablehttp v0.6.6 // indirect
 	github.com/jlaffaye/ftp v0.0.0-20191218041957-e1b8fdd0dcc3
 	github.com/jzelinskie/whirlpool v0.0.0-20170603002051-c19460b8caa6
 	github.com/kardianos/osext v0.0.0-20190222173326-2bc1f35cddc0 // indirect
@@ -51,6 +52,7 @@ require (
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.5.1
 	github.com/t3rm1n4l/go-mega v0.0.0-20200117211730-79a813bb328d
+	github.com/thinkhy/go-adb v0.0.0-20190123053734-b4b48de70418
 	github.com/xanzy/ssh-agent v0.2.1
 	github.com/youmark/pkcs8 v0.0.0-20191102193632-94c173a94d60
 	github.com/yunify/qingstor-sdk-go/v3 v3.2.0
@@ -67,5 +69,7 @@ require (
 	google.golang.org/genproto v0.0.0-20200225123651-fc8f55426688 // indirect
 	gopkg.in/yaml.v2 v2.2.8
 )
+
+replace github.com/thinkhy/go-adb v0.0.0-20190123053734-b4b48de70418 => ../../../github.com/thinkhy/go-adb
 
 go 1.13
