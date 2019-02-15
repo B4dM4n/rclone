@@ -455,6 +455,16 @@ func (o *Object) Open(options ...fs.OpenOption) (io.ReadCloser, error) {
 	if count == 0 {
 		return ioutil.NopCloser(bytes.NewReader(nil)), nil
 	}
+	if offset == 0 {
+		reader, err := o.fs.device.OpenRead(path.Join(o.fs.root, o.remote))
+		if err != nil {
+			return nil, err
+		}
+		return &adbReader{
+			ReadCloser: readers.NewLimitedReadCloser(reader, count),
+			expected:   count,
+		}, nil
+	}
 	offsetBlocks, offsetRest := offset/blockSize, offset%blockSize
 	countBlocks := (count-1)/blockSize + 1
 
