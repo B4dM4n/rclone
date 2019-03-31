@@ -17,17 +17,21 @@ import (
 
 // Options contains options for the remote control server
 type Options struct {
-	HTTPOptions httplib.Options
-	Enabled     bool   // set to enable the server
-	Serve       bool   // set to serve files from remotes
-	Files       string // set to enable serving files locally
-	NoAuth      bool   // set to disable auth checks on AuthRequired methods
+	HTTPOptions    httplib.Options
+	Enabled        bool   // set to enable the server
+	Serve          bool   // set to serve files from remotes
+	Files          string // set to enable serving files locally
+	NoAuth         bool   // set to disable auth checks on AuthRequired methods
+	ListenUnix     string
+	ListenUnixPerm uint32
 }
 
 // DefaultOpt is the default values used for Options
 var DefaultOpt = Options{
-	HTTPOptions: httplib.DefaultOpt,
-	Enabled:     false,
+	HTTPOptions:    httplib.DefaultOpt,
+	ListenUnix:     "",
+	ListenUnixPerm: 0600,
+	Enabled:        false,
 }
 
 func init() {

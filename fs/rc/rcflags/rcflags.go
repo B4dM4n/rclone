@@ -20,5 +20,7 @@ func AddFlags(flagSet *pflag.FlagSet) {
 	flags.StringVarP(flagSet, &Opt.Files, "rc-files", "", "", "Path to local files to serve on the HTTP server.")
 	flags.BoolVarP(flagSet, &Opt.Serve, "rc-serve", "", false, "Enable the serving of remote objects.")
 	flags.BoolVarP(flagSet, &Opt.NoAuth, "rc-no-auth", "", false, "Don't require auth for certain methods.")
+	flags.StringVarP(flagSet, &Opt.ListenUnix, "rc-unix", "", "", "Use a Unix Socket instead of TCP.")
+	flags.Uint32VarP(flagSet, &Opt.ListenUnixPerm, "rc-unix-perm", "", Opt.ListenUnixPerm, "Permissions to set on the Unix Socket.")
 	httpflags.AddFlagsPrefix(flagSet, "rc-", &Opt.HTTPOptions)
 }
