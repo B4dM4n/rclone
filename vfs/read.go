@@ -65,7 +65,7 @@ func (fh *ReadFileHandle) openPending() (err error) {
 		return nil
 	}
 	o := fh.file.getObject()
-	r, err := chunkedreader.New(o, int64(fh.file.d.vfs.Opt.ChunkSize), int64(fh.file.d.vfs.Opt.ChunkSizeLimit)).Open()
+	r, err := chunkedreader.NewWithChunkSizeIterator(o, fh.file.d.vfs.chunkSizeFunc()).Open()
 	if err != nil {
 		return err
 	}
@@ -136,7 +136,7 @@ func (fh *ReadFileHandle) seek(offset int64, reopen bool) (err error) {
 		}
 		// re-open with a seek
 		o := fh.file.getObject()
-		r = chunkedreader.New(o, int64(fh.file.d.vfs.Opt.ChunkSize), int64(fh.file.d.vfs.Opt.ChunkSizeLimit))
+		r = chunkedreader.NewWithChunkSizeIterator(o, fh.file.d.vfs.chunkSizeFunc())
 		_, err := r.Seek(offset, 0)
 		if err != nil {
 			fs.Debugf(fh.remote, "ReadFileHandle.Read seek failed: %v", err)
