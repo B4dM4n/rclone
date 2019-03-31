@@ -29,6 +29,8 @@ import (
 	"github.com/ncw/rclone/fs/fserrors"
 	"github.com/ncw/rclone/fs/fspath"
 	fslog "github.com/ncw/rclone/fs/log"
+	"github.com/ncw/rclone/fs/prom"
+	"github.com/ncw/rclone/fs/prom/promflags"
 	"github.com/ncw/rclone/fs/rc/rcflags"
 	"github.com/ncw/rclone/fs/rc/rcserver"
 	"github.com/ncw/rclone/lib/atexit"
@@ -362,6 +364,14 @@ func initConfig() {
 	_, err = rcserver.Start(&rcflags.Opt)
 	if err != nil {
 		log.Fatalf("Failed to start remote control: %v", err)
+	}
+	// Start the promtheus metrics server if configured
+	if p, err := prom.Start(&promflags.Opt); err != nil {
+		if err != nil {
+			log.Fatalf("Failed to start promtheus metrics export: %v", err)
+		}
+	} else {
+		atexit.Register(p.Stop)
 	}
 
 	// Setup CPU profiling if desired
