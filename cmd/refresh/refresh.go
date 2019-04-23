@@ -5,6 +5,7 @@ package refresh
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"syscall"
 
 	"github.com/rclone/rclone/cmd"
@@ -36,7 +37,26 @@ If you supply the --recursive flag, it will do a recursive walk.
 			args = []string{"."}
 		}
 		for _, f := range args {
-			if doIoctl(f) != nil {
+			abs, err := filepath.Abs(f)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: unable to get absolute path for %q: %s\n", f, err)
+				exitCode = 1
+				continue
+			}
+			err = ensureExists(abs)
+			if err != nil {
+				exitCode = 1
+				continue
+			}
+			isFile, err := isFile(abs)
+			if err != nil {
+				exitCode = 1
+				continue
+			}
+			if isFile {
+				continue
+			}
+			if doIoctl(abs, recursive) != nil {
 				exitCode = 1
 			}
 		}
@@ -44,7 +64,7 @@ If you supply the --recursive flag, it will do a recursive walk.
 	},
 }
 
-func doIoctl(f string) error {
+func doIoctl(f string, recursive bool) error {
 	r := mount.IocArgMagic
 	if recursive {
 		r |= 1
@@ -64,4 +84,32 @@ func doIoctl(f string) error {
 		return fmt.Errorf("result")
 	}
 	return nil
+}
+
+func ensureExists(name string) error {
+	for n := name; n != "."; n = filepath.Dir(n) {
+		fi, err := os.Stat(n)
+		switch {
+		case os.IsNotExist(err):
+			continue
+		case err != nil:
+			fmt.Fprintf(os.Stderr, "Error: stat for %q failed: %s\n", name, err)
+			return err
+		case !fi.IsDir():
+			continue
+		default:
+			return doIoctl(n, false)
+		}
+	}
+	fmt.Fprintf(os.Stderr, "Error: invalid path %q\n", name)
+	return fmt.Errorf("invalid path")
+}
+
+func isFile(name string) (bool, error) {
+	stat, err := os.Stat(name)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: stat for %q failed: %s\n", name, err)
+		return false, err
+	}
+	return stat.Mode().IsRegular(), nil
 }
