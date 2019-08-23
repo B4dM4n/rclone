@@ -2,6 +2,7 @@ package all
 
 import (
 	// Active file systems
+	_ "github.com/rclone/rclone/backend/adb"
 	_ "github.com/rclone/rclone/backend/alias"
 	_ "github.com/rclone/rclone/backend/amazonclouddrive"
 	_ "github.com/rclone/rclone/backend/azureblob"
@@ -31,5 +32,4 @@ import (
 	_ "github.com/rclone/rclone/backend/swift"
 	_ "github.com/rclone/rclone/backend/union"
 	_ "github.com/rclone/rclone/backend/webdav"
-	_ "github.com/rclone/rclone/backend/yandex"
 )
