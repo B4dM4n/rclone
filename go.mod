@@ -32,6 +32,7 @@ require (
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/pkg/errors v0.8.1
 	github.com/pkg/sftp v1.10.1-0.20190523025818-e98a7bef6829
+	github.com/prometheus/client_golang v0.9.3-0.20190127221311-3c4408c8b829
 	github.com/rfjakob/eme v0.0.0-20171028163933-2222dbd4ba46
 	github.com/sevlyar/go-daemon v0.1.5
 	github.com/sirupsen/logrus v1.4.2
