@@ -16,19 +16,24 @@ require (
 	github.com/coreos/bbolt v1.3.3
 	github.com/djherbis/times v1.2.0
 	github.com/dropbox/dropbox-sdk-go-unofficial v5.4.0+incompatible
+	github.com/goftp/file-driver v0.0.0-20180502053751-5d604a0fc0c9 // indirect
 	github.com/goftp/server v0.0.0-20190304020633-eabccc535b5a
+	github.com/google/go-querystring v1.0.0 // indirect
 	github.com/gopherjs/gopherjs v0.0.0-20190430165422-3e4dfb77656c // indirect
 	github.com/jlaffaye/ftp v0.0.0-20190624084859-c1312a7102bf
 	github.com/jzelinskie/whirlpool v0.0.0-20170603002051-c19460b8caa6
+	github.com/kardianos/osext v0.0.0-20190222173326-2bc1f35cddc0 // indirect
 	github.com/koofr/go-httpclient v0.0.0-20180104120329-03786175608a
 	github.com/koofr/go-koofrclient v0.0.0-20190715104037-2c5813f3c29c
+	github.com/kr/fs v0.1.0 // indirect
 	github.com/mattn/go-runewidth v0.0.4
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/ncw/go-acd v0.0.0-20171120105400-887eb06ab6a2
-	github.com/ncw/rclone v1.48.0
 	github.com/ncw/swift v1.0.47
 	github.com/nsf/termbox-go v0.0.0-20190624072549-eeb6cd0a1762
 	github.com/okzk/sdnotify v0.0.0-20180710141335-d9becc38acbd
+	github.com/onsi/ginkgo v1.9.0 // indirect
+	github.com/onsi/gomega v1.6.0 // indirect
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/pkg/errors v0.8.1
 	github.com/pkg/sftp v1.10.1-0.20190523025818-e98a7bef6829

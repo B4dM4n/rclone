@@ -1,6 +1,8 @@
 module bazil.org/fuse
 
+go 1.12
+
 require (
-	golang.org/x/net v0.0.0-20181114220301-adae6a3d119a
-	golang.org/x/sys v0.0.0-20181122145206-62eef0e2fa9b
+	golang.org/x/net v0.0.0-20190420063019-afa5a82059c6
+	golang.org/x/sys v0.0.0-20190422165155-953cdadca894
 )

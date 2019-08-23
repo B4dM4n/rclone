@@ -241,9 +241,9 @@ golang.org/x/crypto/ed25519/internal/edwards25519
 golang.org/x/net/websocket
 golang.org/x/net/html
 golang.org/x/net/publicsuffix
+golang.org/x/net/context
 golang.org/x/net/http2
 golang.org/x/net/webdav
-golang.org/x/net/context
 golang.org/x/net/html/atom
 golang.org/x/net/ipv4
 golang.org/x/net/http/httpguts
