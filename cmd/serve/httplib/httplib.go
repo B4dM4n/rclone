@@ -293,11 +293,13 @@ func NewServer(handler http.Handler, opt *Options) *Server {
 // the listener was not started; does not block, so
 // use s.Wait() to block on the listener indefinitely.
 func (s *Server) Serve() error {
-	ln, err := net.Listen("tcp", s.httpServer.Addr)
-	if err != nil {
-		return errors.Wrapf(err, "start server failed")
+	if s.listener == nil {
+		ln, err := net.Listen("tcp", s.httpServer.Addr)
+		if err != nil {
+			return errors.Wrapf(err, "start server failed")
+		}
+		s.listener = ln
 	}
-	s.listener = ln
 	s.waitChan = make(chan struct{})
 	go func() {
 		var err error
@@ -382,4 +384,9 @@ func (s *Server) Path(w http.ResponseWriter, r *http.Request) (Path string, ok b
 	}
 	Path = Path[len(s.Opt.Prefix):]
 	return Path, true
+}
+
+// SetListener makes Serve use the given listener instead of creating a new one
+func (s *Server) SetListener(ln net.Listener) {
+	s.listener = ln
 }

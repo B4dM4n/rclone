@@ -29,6 +29,8 @@ type Options struct {
 	AccessControlAllowOrigin string // set the access control for CORS configuration
 	JobExpireDuration        time.Duration
 	JobExpireInterval        time.Duration
+	ListenUnix               string
+	ListenUnixPerm           uint32
 }
 
 // DefaultOpt is the default values used for Options
@@ -37,6 +39,8 @@ var DefaultOpt = Options{
 	Enabled:           false,
 	JobExpireDuration: 60 * time.Second,
 	JobExpireInterval: 10 * time.Second,
+	ListenUnix:        "",
+	ListenUnixPerm:    0600,
 }
 
 func init() {
