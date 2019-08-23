@@ -248,6 +248,10 @@ type NodeRemovexattrer interface {
 	Removexattr(ctx context.Context, req *fuse.RemovexattrRequest) error
 }
 
+type NodeIoctler interface {
+	Ioctl(ctx context.Context, req *fuse.IoctlRequest, resp *fuse.IoctlResponse) error
+}
+
 var startTime = time.Now()
 
 func nodeAttr(ctx context.Context, n Node, attr *fuse.Attr) error {
@@ -1381,6 +1385,20 @@ func (c *Server) handleRequest(ctx context.Context, node Node, snode *serveNode,
 		c.meta.Unlock()
 		done(nil)
 		r.Respond()
+		return nil
+
+	case *fuse.IoctlRequest:
+		n, ok := node.(NodeIoctler)
+		if !ok {
+			return fuse.ENOSYS
+		}
+		s := &fuse.IoctlResponse{}
+		err := n.Ioctl(ctx, r, s)
+		if err != nil {
+			return err
+		}
+		done(s)
+		r.Respond(s)
 		return nil
 
 		/*	case *FsyncdirRequest:

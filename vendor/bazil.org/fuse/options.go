@@ -245,6 +245,13 @@ func WritebackCache() MountOption {
 	}
 }
 
+func PosixACL() MountOption {
+	return func(conf *mountConfig) error {
+		conf.initFlags |= InitPosixACL
+		return nil
+	}
+}
+
 // OSXFUSEPaths describes the paths used by an installed OSXFUSE
 // version. See OSXFUSELocationV3 for typical values.
 type OSXFUSEPaths struct {
