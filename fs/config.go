@@ -53,7 +53,8 @@ type ConfigInfo struct {
 	Checkers               int
 	Transfers              int
 	ConnectTimeout         time.Duration // Connect timeout
-	Timeout                time.Duration // Data channel timeout
+	Timeout                time.Duration // Data channel idle timeout
+	IOTimeout              time.Duration // Data channel IO timeout
 	Dump                   DumpFlags
 	InsecureSkipVerify     bool // Skip server certificate verification
 	DeleteMode             DeleteMode
