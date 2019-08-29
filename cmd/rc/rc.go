@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -131,6 +132,16 @@ func doCall(path string, in rc.Params) (out rc.Params, err error) {
 
 	// Do HTTP request
 	client := fshttp.NewClient(fs.Config)
+	if rcUnixFlag := pflag.Lookup("rc-unix"); rcUnixFlag != nil && rcUnixFlag.Changed {
+		t, ok := client.Transport.(*fshttp.Transport)
+		if !ok {
+			return nil, errors.Errorf("expected *fshttp.Transport, got %T", client.Transport)
+		}
+		dial := t.Transport.DialContext
+		t.Transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return dial(ctx, "unix", rcUnixFlag.Value.String())
+		}
+	}
 	url += path
 	data, err := json.Marshal(in)
 	if err != nil {
