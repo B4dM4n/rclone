@@ -72,4 +72,6 @@ require (
 
 replace github.com/thinkhy/go-adb v0.0.0-20190123053734-b4b48de70418 => ../../../github.com/thinkhy/go-adb
 
+replace bazil.org/fuse v0.0.0-20180421153158-65cc252bf669 => ../../../bazil.org/fuse
+
 go 1.13

@@ -46,7 +46,7 @@ const (
 	protoVersionMinMajor = 7
 	protoVersionMinMinor = 8
 	protoVersionMaxMajor = 7
-	protoVersionMaxMinor = 12
+	protoVersionMaxMinor = 18
 )
 
 const (
@@ -273,6 +273,12 @@ const (
 	InitAsyncDIO        InitFlags = 1 << 15
 	InitWritebackCache  InitFlags = 1 << 16
 	InitNoOpenSupport   InitFlags = 1 << 17
+	InitParallelDirops  InitFlags = 1 << 18
+	InitHandleKillpriv  InitFlags = 1 << 19
+	InitPosixACL        InitFlags = 1 << 20
+	InitAbortError      InitFlags = 1 << 21
+	InitMaxPages        InitFlags = 1 << 22
+	InitCacheSymlinks   InitFlags = 1 << 23
 
 	InitCaseSensitive InitFlags = 1 << 29 // OS X only
 	InitVolRename     InitFlags = 1 << 30 // OS X only
@@ -303,6 +309,13 @@ var initFlagNames = []flagName{
 	{uint32(InitAsyncDIO), "InitAsyncDIO"},
 	{uint32(InitWritebackCache), "InitWritebackCache"},
 	{uint32(InitNoOpenSupport), "InitNoOpenSupport"},
+	{uint32(InitPosixACL), "InitPosixACL"},
+	{uint32(InitParallelDirops), "InitParallelDirops"},
+	{uint32(InitHandleKillpriv), "InitHandleKillpriv"},
+	{uint32(InitPosixACL), "InitPosixACL"},
+	{uint32(InitAbortError), "InitAbortError"},
+	{uint32(InitMaxPages), "InitMaxPages"},
+	{uint32(InitCacheSymlinks), "InitCacheSymlinks"},
 
 	{uint32(InitCaseSensitive), "InitCaseSensitive"},
 	{uint32(InitVolRename), "InitVolRename"},
@@ -771,4 +784,38 @@ type notifyInvalEntryOut struct {
 	Parent  uint64
 	Namelen uint32
 	_       uint32
+}
+
+// Ioctl flags
+type ioctlFlags uint32
+
+const (
+	// 32bit compat ioctl on 64bit machine
+	ioctlCompat ioctlFlags = 1 << iota
+	// not restricted to well-formed ioctls, retry allowed
+	ioctlUnrestricted
+	// retry with new iovecs
+	ioctlRetry
+	// 32bit ioctl
+	ioctl32Bit
+	// is a directory
+	ioctlDir
+	// maximum of in_iovecs + out_iovecs
+	ioctlMaxIov = 256
+)
+
+type ioctlIn struct {
+	Fh      uint64
+	Flags   uint32
+	Cmd     uint32
+	Arg     uint64
+	InSize  uint32
+	OutSize uint32
+}
+
+type ioctlOut struct {
+	Result  int32
+	Flags   uint32
+	InIovs  uint32
+	OutIovs uint32
 }
