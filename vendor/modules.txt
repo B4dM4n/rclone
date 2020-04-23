@@ -110,6 +110,10 @@ github.com/hanwen/go-fuse/v2/fuse
 github.com/hanwen/go-fuse/v2/internal
 github.com/hanwen/go-fuse/v2/internal/utimens
 github.com/hanwen/go-fuse/v2/splice
+# github.com/hashicorp/go-cleanhttp v0.5.1
+github.com/hashicorp/go-cleanhttp
+# github.com/hashicorp/go-retryablehttp v0.6.6
+github.com/hashicorp/go-retryablehttp
 # github.com/inconshreveable/mousetrap v1.0.0
 github.com/inconshreveable/mousetrap
 # github.com/jlaffaye/ftp v0.0.0-20191218041957-e1b8fdd0dcc3
@@ -200,6 +204,10 @@ github.com/stretchr/testify/assert
 github.com/stretchr/testify/require
 # github.com/t3rm1n4l/go-mega v0.0.0-20200117211730-79a813bb328d
 github.com/t3rm1n4l/go-mega
+# github.com/thinkhy/go-adb v0.0.0-20190123053734-b4b48de70418 => ../../../github.com/thinkhy/go-adb
+github.com/thinkhy/go-adb
+github.com/thinkhy/go-adb/internal/errors
+github.com/thinkhy/go-adb/wire
 # github.com/xanzy/ssh-agent v0.2.1
 github.com/xanzy/ssh-agent
 # github.com/youmark/pkcs8 v0.0.0-20191102193632-94c173a94d60
