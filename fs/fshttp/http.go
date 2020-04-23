@@ -48,14 +48,16 @@ func StartHTTPTokenBucket() {
 // A net.Conn that sets a deadline for every Read or Write operation
 type timeoutConn struct {
 	net.Conn
-	timeout time.Duration
+	timeout   time.Duration
+	ioTimeout time.Duration
 }
 
 // create a timeoutConn using the timeout
-func newTimeoutConn(conn net.Conn, timeout time.Duration) (c *timeoutConn, err error) {
+func newTimeoutConn(conn net.Conn, timeout, ioTimeout time.Duration) (c *timeoutConn, err error) {
 	c = &timeoutConn{
-		Conn:    conn,
-		timeout: timeout,
+		Conn:      conn,
+		timeout:   timeout,
+		ioTimeout: ioTimeout,
 	}
 	err = c.nudgeDeadline()
 	return
@@ -70,8 +72,14 @@ func (c *timeoutConn) nudgeDeadline() (err error) {
 	return c.Conn.SetDeadline(when)
 }
 
-// readOrWrite bytes doing idle timeouts
+// readOrWrite bytes doing io and idle timeouts
 func (c *timeoutConn) readOrWrite(f func([]byte) (int, error), b []byte) (n int, err error) {
+	if c.ioTimeout != 0 {
+		err = c.Conn.SetDeadline(time.Now().Add(c.ioTimeout))
+		if err != nil {
+			return
+		}
+	}
 	n, err = f(b)
 	// Don't nudge if no bytes or an error
 	if n == 0 || err != nil {
@@ -82,12 +90,12 @@ func (c *timeoutConn) readOrWrite(f func([]byte) (int, error), b []byte) (n int,
 	return
 }
 
-// Read bytes doing idle timeouts
+// Read bytes doing io and idle timeouts
 func (c *timeoutConn) Read(b []byte) (n int, err error) {
 	return c.readOrWrite(c.Conn.Read, b)
 }
 
-// Write bytes doing idle timeouts
+// Write bytes doing io and idle timeouts
 func (c *timeoutConn) Write(b []byte) (n int, err error) {
 	return c.readOrWrite(c.Conn.Write, b)
 }
@@ -118,7 +126,7 @@ func dialContextTimeout(ctx context.Context, network, address string, ci *fs.Con
 	if err != nil {
 		return c, err
 	}
-	return newTimeoutConn(c, ci.Timeout)
+	return newTimeoutConn(c, ci.Timeout, ci.IOTimeout)
 }
 
 // ResetTransport resets the existing transport, allowing it to take new settings.
