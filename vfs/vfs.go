@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/rclone/rclone/fs"
+	"github.com/rclone/rclone/fs/chunkedreader"
 	"github.com/rclone/rclone/fs/log"
 	"github.com/rclone/rclone/vfs/vfscache"
 	"github.com/rclone/rclone/vfs/vfscommon"
@@ -164,6 +165,8 @@ type VFS struct {
 	usageTime time.Time
 	usage     *fs.Usage
 	pollChan  chan time.Duration
+
+	chunkSizeFunc func() chunkedreader.ChunkSizeIterator
 }
 
 // New creates a new VFS and root directory.  If opt is nil, then
@@ -187,6 +190,14 @@ func New(f fs.Fs, opt *vfscommon.Options) *VFS {
 
 	// Make sure directories are returned as directories
 	vfs.Opt.DirPerms |= os.ModeDir
+
+	if vfs.Opt.ChunkSizeList.Empty() {
+		vfs.chunkSizeFunc = func() chunkedreader.ChunkSizeIterator {
+			return chunkedreader.IteratorFromMinMax(int64(vfs.Opt.ChunkSize), int64(vfs.Opt.ChunkSizeLimit))
+		}
+	} else {
+		vfs.chunkSizeFunc = vfs.Opt.ChunkSizeList.Iter
+	}
 
 	// Create root directory
 	vfs.root = newDir(vfs, f, nil, fsDir)

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/rclone/rclone/fs"
+	"github.com/rclone/rclone/fs/chunkedreader"
 )
 
 // Options is options for creating the vfs
@@ -23,6 +24,7 @@ type Options struct {
 	FilePerms         os.FileMode
 	ChunkSize         fs.SizeSuffix // if > 0 read files in chunks
 	ChunkSizeLimit    fs.SizeSuffix // if > ChunkSize double the chunk size after each chunk until reached
+	ChunkSizeList     chunkedreader.MultiplierList
 	CacheMode         CacheMode
 	CacheMaxAge       time.Duration
 	CacheMaxSize      fs.SizeSuffix
