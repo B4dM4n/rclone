@@ -68,4 +68,6 @@ require (
 	gopkg.in/yaml.v2 v2.2.8
 )
 
+replace bazil.org/fuse v0.0.0-20200117225306-7b5117fecadc => ../../../bazil.org/fuse
+
 go 1.13
