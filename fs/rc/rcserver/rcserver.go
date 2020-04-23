@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"log"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -66,6 +68,23 @@ func newServer(opt *rc.Options, mux *http.ServeMux) *Server {
 		Server: httplib.NewServer(mux, &opt.HTTPOptions),
 		opt:    opt,
 	}
+
+	if opt.ListenUnix != "" {
+		ln, err := net.Listen("unix", opt.ListenUnix)
+		if err != nil {
+			fs.Errorf(nil, "Opening listener: %v", err)
+			return nil
+		}
+		if opt.ListenUnixPerm != 0 {
+			err = os.Chmod(opt.ListenUnix, os.FileMode(opt.ListenUnixPerm))
+			if err != nil {
+				fs.Errorf(nil, "Chmod on listener: %v", err)
+				return nil
+			}
+		}
+		s.Server.SetListener(ln)
+	}
+
 	mux.HandleFunc("/", s.handler)
 
 	// Add some more mime types which are often missing
