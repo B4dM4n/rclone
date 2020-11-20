@@ -124,9 +124,9 @@ func rcRefresh(ctx context.Context, in rc.Params) (out rc.Params, err error) {
 	result := map[string]string{}
 	if len(in) == 0 {
 		if recursive {
-			err = root.readDirTree()
+			err = root.ReadDirTree()
 		} else {
-			err = root.readDir()
+			err = root.ReadDir()
 		}
 		if err != nil {
 			result[""] = err.Error()
@@ -145,9 +145,9 @@ func rcRefresh(ctx context.Context, in rc.Params) (out rc.Params, err error) {
 					result[path] = err.Error()
 				} else {
 					if recursive {
-						err = dir.readDirTree()
+						err = dir.ReadDirTree()
 					} else {
-						err = dir.readDir()
+						err = dir.ReadDir()
 					}
 					if err != nil {
 						result[path] = err.Error()
