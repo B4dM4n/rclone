@@ -49,6 +49,7 @@ require (
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.6.1
 	github.com/t3rm1n4l/go-mega v0.0.0-20200416171014-ffad7fcb44b8
+	github.com/thinkhy/go-adb v0.0.0-20190123053734-b4b48de70418
 	github.com/xanzy/ssh-agent v0.2.1
 	github.com/youmark/pkcs8 v0.0.0-20200520070018-fad002e585ce
 	github.com/yunify/qingstor-sdk-go/v3 v3.2.0
@@ -74,3 +75,5 @@ require (
 )
 
 replace bazil.org/fuse => github.com/B4dM4n/fuse v0.0.0-20201120104232-7a0ef5fd520d
+
+replace github.com/thinkhy/go-adb => github.com/B4dM4n/go-adb v0.0.0-20190417213254-bd6368b25cfa
