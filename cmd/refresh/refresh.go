@@ -1,4 +1,4 @@
-// +build linux darwin freebsd
+// +build linux,go1.13
 
 package refresh
 
