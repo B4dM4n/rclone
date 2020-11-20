@@ -1,3 +1,5 @@
+// +build linux,go1.13
+
 package mount
 
 import (
