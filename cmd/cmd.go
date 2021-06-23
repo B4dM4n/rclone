@@ -414,9 +414,10 @@ func initConfig() {
 	}
 
 	// Start the remote control server if configured
-	_, err = rcserver.Start(context.Background(), &rcflags.Opt)
+	server, err := rcserver.Start(context.Background(), &rcflags.Opt)
 	if err != nil {
 		log.Fatalf("Failed to start remote control: %v", err)
+		atexit.Register(server.Close)
 	}
 
 	// Setup CPU profiling if desired
