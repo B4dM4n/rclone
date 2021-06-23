@@ -44,6 +44,7 @@ import (
 	_ "github.com/rclone/rclone/cmd/rc"
 	_ "github.com/rclone/rclone/cmd/rcat"
 	_ "github.com/rclone/rclone/cmd/rcd"
+	_ "github.com/rclone/rclone/cmd/refresh"
 	_ "github.com/rclone/rclone/cmd/reveal"
 	_ "github.com/rclone/rclone/cmd/rmdir"
 	_ "github.com/rclone/rclone/cmd/rmdirs"
