@@ -58,6 +58,7 @@ func AddFlags(ci *fs.ConfigInfo, flagSet *pflag.FlagSet) {
 	flags.DurationVarP(flagSet, &ci.Timeout, "timeout", "", ci.Timeout, "IO idle timeout")
 	flags.DurationVarP(flagSet, &ci.ExpectContinueTimeout, "expect-continue-timeout", "", ci.ExpectContinueTimeout, "Timeout when using expect / 100-continue in HTTP")
 	flags.BoolVarP(flagSet, &dumpHeaders, "dump-headers", "", false, "Dump HTTP headers - may contain sensitive info")
+	flags.DurationVarP(flagSet, &ci.IOTimeout, "io-timeout", "", ci.IOTimeout, "IO operation timeout when greater 0")
 	flags.BoolVarP(flagSet, &dumpBodies, "dump-bodies", "", false, "Dump HTTP headers and bodies - may contain sensitive info")
 	flags.BoolVarP(flagSet, &ci.InsecureSkipVerify, "no-check-certificate", "", ci.InsecureSkipVerify, "Do not verify the server SSL certificate. Insecure.")
 	flags.BoolVarP(flagSet, &ci.AskPassword, "ask-password", "", ci.AskPassword, "Allow prompt for password for encrypted configuration.")
