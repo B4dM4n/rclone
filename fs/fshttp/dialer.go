@@ -18,8 +18,9 @@ func dialContext(ctx context.Context, network, address string, ci *fs.ConfigInfo
 // Dialer structure contains default dialer and timeout, tclass support
 type Dialer struct {
 	net.Dialer
-	timeout time.Duration
-	tclass  int
+	timeout   time.Duration
+	ioTimeout time.Duration
+	tclass    int
 }
 
 // NewDialer creates a Dialer structure with Timeout, Keepalive,
@@ -31,8 +32,9 @@ func NewDialer(ctx context.Context) *Dialer {
 			Timeout:   ci.ConnectTimeout,
 			KeepAlive: 30 * time.Second,
 		},
-		timeout: ci.Timeout,
-		tclass:  int(ci.TrafficClass),
+		timeout:   ci.Timeout,
+		ioTimeout: ci.IOTimeout,
+		tclass:    int(ci.TrafficClass),
 	}
 	if ci.BindAddr != nil {
 		dialer.Dialer.LocalAddr = &net.TCPAddr{IP: ci.BindAddr}
@@ -64,20 +66,22 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.
 			}
 		}
 	}
-	return newTimeoutConn(c, d.timeout)
+	return newTimeoutConn(c, d.timeout, d.ioTimeout)
 }
 
 // A net.Conn that sets a deadline for every Read or Write operation
 type timeoutConn struct {
 	net.Conn
-	timeout time.Duration
+	timeout   time.Duration
+	ioTimeout time.Duration
 }
 
 // create a timeoutConn using the timeout
-func newTimeoutConn(conn net.Conn, timeout time.Duration) (c *timeoutConn, err error) {
+func newTimeoutConn(conn net.Conn, timeout time.Duration, ioTimeout time.Duration) (c *timeoutConn, err error) {
 	c = &timeoutConn{
-		Conn:    conn,
-		timeout: timeout,
+		Conn:      conn,
+		timeout:   timeout,
+		ioTimeout: ioTimeout,
 	}
 	err = c.nudgeDeadline()
 	return
@@ -92,8 +96,21 @@ func (c *timeoutConn) nudgeDeadline() (err error) {
 	return c.Conn.SetDeadline(when)
 }
 
+// Nudge the deadline for an io timeout on by c.ioTimeout if non-zero
+func (c *timeoutConn) nudgeIoDeadline() (err error) {
+	if c.ioTimeout == 0 {
+		return nil
+	}
+	when := time.Now().Add(c.ioTimeout)
+	return c.Conn.SetDeadline(when)
+}
+
 // Read bytes doing idle timeouts
 func (c *timeoutConn) Read(b []byte) (n int, err error) {
+	err = c.nudgeIoDeadline()
+	if err != nil {
+		return
+	}
 	// Ideally we would LimitBandwidth(len(b)) here and replace tokens we didn't use
 	n, err = c.Conn.Read(b)
 	accounting.TokenBucket.LimitBandwidth(accounting.TokenBucketSlotTransportRx, n)
@@ -109,6 +126,10 @@ func (c *timeoutConn) Read(b []byte) (n int, err error) {
 // Write bytes doing idle timeouts
 func (c *timeoutConn) Write(b []byte) (n int, err error) {
 	accounting.TokenBucket.LimitBandwidth(accounting.TokenBucketSlotTransportTx, len(b))
+	err = c.nudgeIoDeadline()
+	if err != nil {
+		return
+	}
 	n, err = c.Conn.Write(b)
 	// Don't nudge if no bytes or an error
 	if n == 0 || err != nil {
