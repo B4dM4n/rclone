@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/lib/pool"
 	"github.com/rclone/rclone/lib/readers"
@@ -94,6 +95,7 @@ func (a *AsyncReader) init(rd io.ReadCloser, buffers int) {
 				}
 				err := b.read(a.in)
 				a.ready <- b
+				promBlocksReady.Inc()
 				if err != nil {
 					return
 				}
@@ -102,6 +104,7 @@ func (a *AsyncReader) init(rd io.ReadCloser, buffers int) {
 			}
 		}
 	}()
+	promOpen.Inc()
 }
 
 // bufferPool is a global pool of buffers
@@ -141,6 +144,7 @@ func (a *AsyncReader) fill() (err error) {
 			}
 			return a.err
 		}
+		promBlocksReady.Dec()
 		a.cur = b
 	}
 	return nil
@@ -148,6 +152,14 @@ func (a *AsyncReader) fill() (err error) {
 
 // Read will return the next available data.
 func (a *AsyncReader) Read(p []byte) (n int, err error) {
+	now := time.Now()
+	defer func() {
+		promReadKibiBytes.Observe(float64(n) / 1024.)
+		promReadTimes.Observe(time.Since(now).Seconds())
+		if err != nil && err != io.EOF {
+			promReadErrors.Add(1)
+		}
+	}()
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -244,6 +256,7 @@ func (a *AsyncReader) SkipBytes(skip int) (ok bool) {
 					return false
 				}
 				a.cur = b
+				promBlocksReady.Dec()
 			default:
 				return false
 			}
@@ -306,6 +319,8 @@ func (a *AsyncReader) Abandon() {
 		a.putBuffer(a.cur)
 		a.cur = nil
 	}
+	promOpen.Dec()
+	promBlocksReady.Sub(float64(len(a.ready)))
 	for b := range a.ready {
 		a.putBuffer(b)
 	}
@@ -362,4 +377,43 @@ func (b *buffer) buffer() []byte {
 // increment the offset
 func (b *buffer) increment(n int) {
 	b.offset += n
+}
+
+var (
+	promReadKibiBytes = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "rclone_asyncreader_read_kibi_bytes",
+		Help:    "Amount of kibi bytes read in one Read call",
+		Buckets: prometheus.ExponentialBuckets(1., 4, 6),
+	})
+	promReadErrors = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "rclone_asyncreader_read_errors_total",
+		Help: "Number of errors during Read calls",
+	})
+	promReadTimes = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name: "rclone_asyncreader_read_histogram_seconds",
+		Help: "Time spent in one Read call",
+	})
+	promBlocksReady = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "rclone_asyncreader_blocks_ready",
+		Help: "Number of buffer blocks filled at the same time",
+	})
+	promOpen = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "rclone_asyncreader_open",
+		Help: "Number of readers open at the same time",
+	})
+	promOpens = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "rclone_asyncreader_open_total",
+		Help: "Number of readers opened",
+	})
+)
+
+func init() {
+	prometheus.MustRegister(
+		promReadKibiBytes,
+		promReadErrors,
+		promReadTimes,
+		promBlocksReady,
+		promOpen,
+		promOpens,
+	)
 }
